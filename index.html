@@ -1,12 +1,778 @@
-<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8"/>
-    <title>Istok Demo</title>
-  </head>
-  <body>
-    <h1>Istok Frontend Demo</h1>
-    <p>If you see this page, S3+CloudFront works ✅</p>
-    <script src="config.js"></script>
-  </body>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Progress Tracker</title>
+
+  <link href="css/style.css" rel="stylesheet"/>
+  <link rel="icon" type="image/png" href="icon.png"/>
+
+  <!-- 1) config ПЕРВЫЙ -->
+  <script src="config.js"></script>
+
+  <!-- 2) потом обычные скрипты -->
+  <script defer src="js/api.js"></script>
+  <script defer src="js/progress.js"></script>
+</head>
+
+<body>
+  <!-- ДАЛЬШЕ ТВОЙ ОГРОМНЫЙ <header>...</header> и <main>...</main> -->
+
+<header class="topbar">
+<div class="top-left">
+<div class="dh-pill">
+<select aria-label="Datahall" class="dhSelect" id="dhSelect">
+<option value="DH12">DH12</option>
+</select>
+</div>
+<div class="tabs" id="viewSeg">
+<button class="tab" data-view="rack" type="button">Rack view</button>
+<button class="tab active" data-view="process" type="button">Process view</button>
+</div>
+</div>
+<div class="top-center">
+<div class="search">
+<span aria-hidden="true" class="search-ico">⌕</span>
+<input class="search-input" id="ptSearch" placeholder="Search"/>
+</div>
+</div>
+<div class="top-right">
+  <label class="toggle">
+    <input id="problemsOnly" type="checkbox"/>
+    <span class="toggle-ui"></span>
+    <span class="toggle-text">Problems Only</span>
+  </label>
+  <label class="toggle">
+    <input id="qcOnly" type="checkbox"/>
+    <span class="toggle-ui"></span>
+    <span class="toggle-text">QC Only</span>
+  </label>
+</div>
+</header>
+<main class="page">
+<section class="map-card">
+<div class="map-header">
+<div class="map-header-top">
+<div class="map-title"></div>
+<div class="top-actions">
+<div aria-label="Map zoom" class="zoom-controls">
+<button class="zbtn" id="zoomOut" type="button">−</button>
+<button class="zbtn" id="zoomIn" type="button">+</button>
+<button class="zbtn" id="zoomReset" type="button">⟲</button>
+<span class="zlabel" id="zoomPct">100%</span>
+</div>
+</div>
+</div>
+<div class="map-header-bottom">
+<div class="process-chips" id="ptProcessChips"></div>
+<select aria-label="Process" class="select" hidden="" id="ptProcess"></select>
+</div>
+</div>
+<div class="map-scroll" id="mapScroll">
+<div class="matrix-zoom" id="matrixZoom">
+<div class="matrix" id="matrixRoot">
+<!-- header: LU(left empty) + ROW13..ROW01 + LU(right empty) -->
+<div class="matrix-row matrix-head">
+<div class="corner"></div>
+<div class="rowh">ROW13</div>
+<div class="rowh">ROW12</div>
+<div class="rowh">ROW11</div>
+<div class="rowh">ROW10</div>
+<div class="rowh">ROW09</div>
+<div class="rowh">ROW08</div>
+<div class="rowh">ROW07</div>
+<div class="rowh">ROW06</div>
+<div class="rowh">ROW05</div>
+<div class="rowh">ROW04</div>
+<div class="rowh">ROW03</div>
+<div class="rowh">ROW02</div>
+<div class="rowh">ROW01</div>
+<div class="corner"></div>
+</div>
+<!-- LU1 -->
+<div class="matrix-row">
+<div class="lu-label">LU1</div>
+<div class="cell label-left"><span class="su" data-su="LU1_ROW13_SIS_T1">NB29</span>
+<span class="su" data-su="LU1_ROW13_SIS_T1">NB28</span><div class="textlabel">SIS T1</div></div>
+<div class="cell label-right"><span class="su" data-su="LU1_ROW12_SIS_T1">NA29</span><div class="textlabel">SIS T1</div></div>
+<div class="cell label-right"><span class="su" data-su="96">LSL</span>
+<span class="su" data-su="96">LSK</span>
+<span class="su" data-su="96">LSJ</span>
+<span class="su" data-su="96">LSI</span>
+<span class="su" data-su="96">LSH</span><div class="textlabel">SU96</div></div>
+<div class="cell label-left"><span class="su" data-su="79">LPA</span>
+<span class="su" data-su="79">LPB</span>
+<span class="su" data-su="79">LPC</span>
+<span class="su" data-su="79">LPD</span>
+<span class="su" data-su="79">LPE</span><div class="textlabel">SU79</div></div>
+<div class="cell label-right"><span class="su" data-su="78">LOZ</span>
+<span class="su" data-su="78">LOY</span>
+<span class="su" data-su="78">LOX</span>
+<span class="su" data-su="78">LOW</span>
+<span class="su" data-su="78">LOV</span><div class="textlabel">SU78</div></div>
+<div class="cell label-left"><span class="su" data-su="61">LLO</span>
+<span class="su" data-su="61">LLP</span>
+<span class="su" data-su="61">LLQ</span>
+<span class="su" data-su="61">LLR</span>
+<span class="su" data-su="61">LLS</span><div class="textlabel">SU61</div></div>
+<div class="cell label-right"><span class="su" data-su="60">LLN</span>
+<span class="su" data-su="60">LLM</span>
+<span class="su" data-su="60">LLL</span>
+<span class="su" data-su="60">LLK</span>
+<span class="su" data-su="60">LLJ</span><div class="textlabel">SU60</div></div>
+<div class="cell label-left"><span class="su" data-su="43">LIC</span>
+<span class="su" data-su="43">LID</span>
+<span class="su" data-su="43">LIE</span>
+<span class="su" data-su="43">LIF</span>
+<span class="su" data-su="43">LIG</span><div class="textlabel">SU43</div></div>
+<div class="cell label-right"><span class="su" data-su="42">LIB</span>
+<span class="su" data-su="42">LIA</span>
+<span class="su" data-su="42">LHZ</span>
+<span class="su" data-su="42">LHY</span>
+<span class="su" data-su="42">LHX</span><div class="textlabel">SU42</div></div>
+<div class="cell label-left"><span class="su" data-su="25">LEQ</span>
+<span class="su" data-su="25">LER</span>
+<span class="su" data-su="25">LES</span>
+<span class="su" data-su="25">LET</span>
+<span class="su" data-su="25">LEU</span><div class="textlabel">SU25</div></div>
+<div class="cell label-right"><span class="su" data-su="24">LEP</span>
+<span class="su" data-su="24">LEO</span>
+<span class="su" data-su="24">LEN</span>
+<span class="su" data-su="24">LEM</span>
+<span class="su" data-su="24">LEL</span><div class="textlabel">SU24</div></div>
+<div class="cell label-left"><span class="su" data-su="7">LBE</span>
+<span class="su" data-su="7">LBF</span>
+<span class="su" data-su="7">LBG</span>
+<span class="su" data-su="7">LBH</span>
+<span class="su" data-su="7">LBI</span><div class="textlabel">SU7</div></div>
+<div class="cell"></div>
+<div class="lu-label lu-right">LU1</div>
+</div>
+<!-- LU2 -->
+<div class="matrix-row">
+<div class="lu-label">LU2</div>
+<div class="cell label-left"><span class="su" data-su="LU2_ROW13_ROCE_T2_RAIL1">NB27</span>
+<span class="su" data-su="LU2_ROW13_ROCE_T2_RAIL1">NB26</span>
+<span class="su" data-su="LU2_ROW13_ROCE_T2_RAIL1">NB25</span>
+<span class="su" data-su="LU2_ROW13_ROCE_T2_RAIL1">NB24</span><div class="textlabel">ROCE T2 RAIL 1</div></div>
+<div class="cell label-right"><span class="su" data-su="LU2_ROW12_ROCE_T2_RAIL1">NA27</span>
+<span class="su" data-su="LU2_ROW12_ROCE_T2_RAIL1">NA26</span>
+<span class="su" data-su="LU2_ROW12_ROCE_T2_RAIL1">NA25</span>
+<span class="su" data-su="LU2_ROW12_ROCE_T2_RAIL1">NA24</span><div class="textlabel">ROCE T2 RAIL 1</div></div>
+<div class="cell label-right"><span class="su" data-su="95">LSG</span>
+<span class="su" data-su="95">LSF</span>
+<span class="su" data-su="95">LSE</span>
+<span class="su" data-su="95">LSD</span>
+<span class="su" data-su="95">LSC</span><div class="textlabel">SU95</div></div>
+<div class="cell label-left"><span class="su" data-su="80">LPF</span>
+<span class="su" data-su="80">LPG</span>
+<span class="su" data-su="80">LPH</span>
+<span class="su" data-su="80">LPI</span>
+<span class="su" data-su="80">LPJ</span><div class="textlabel">SU80</div></div>
+<div class="cell label-right"><span class="su" data-su="77">LOU</span>
+<span class="su" data-su="77">LOT</span>
+<span class="su" data-su="77">LOS</span>
+<span class="su" data-su="77">LOR</span>
+<span class="su" data-su="77">LOQ</span><div class="textlabel">SU77</div></div>
+<div class="cell label-left"><span class="su" data-su="62">LLT</span>
+<span class="su" data-su="62">LLU</span>
+<span class="su" data-su="62">LLV</span>
+<span class="su" data-su="62">LLW</span>
+<span class="su" data-su="62">LLX</span><div class="textlabel">SU62</div></div>
+<div class="cell label-right"><span class="su" data-su="59">LLI</span>
+<span class="su" data-su="59">LLH</span>
+<span class="su" data-su="59">LLG</span>
+<span class="su" data-su="59">LLF</span>
+<span class="su" data-su="59">LLE</span><div class="textlabel">SU59</div></div>
+<div class="cell label-left"><span class="su" data-su="44">LIH</span>
+<span class="su" data-su="44">LII</span>
+<span class="su" data-su="44">LIJ</span>
+<span class="su" data-su="44">LIK</span>
+<span class="su" data-su="44">LIL</span><div class="textlabel">SU44</div></div>
+<div class="cell label-right"><span class="su" data-su="41">LHW</span>
+<span class="su" data-su="41">LHV</span>
+<span class="su" data-su="41">LHU</span>
+<span class="su" data-su="41">LHT</span>
+<span class="su" data-su="41">LHS</span><div class="textlabel">SU41</div></div>
+<div class="cell label-left"><span class="su" data-su="26">LEV</span>
+<span class="su" data-su="26">LEW</span>
+<span class="su" data-su="26">LEX</span>
+<span class="su" data-su="26">LEY</span>
+<span class="su" data-su="26">LEZ</span><div class="textlabel">SU26</div></div>
+<div class="cell label-right"><span class="su" data-su="23">LEK</span>
+<span class="su" data-su="23">LEJ</span>
+<span class="su" data-su="23">LEI</span>
+<span class="su" data-su="23">LEH</span>
+<span class="su" data-su="23">LEG</span><div class="textlabel">SU23</div></div>
+<div class="cell label-left"><span class="su" data-su="8">LBJ</span>
+<span class="su" data-su="8">LBK</span>
+<span class="su" data-su="8">LBL</span>
+<span class="su" data-su="8">LBM</span>
+<span class="su" data-su="8">LBN</span><div class="textlabel">SU8</div></div>
+<div class="cell"></div>
+<div class="lu-label lu-right">LU2</div>
+</div>
+<!-- LU3 -->
+<div class="matrix-row">
+<div class="lu-label">LU3</div>
+<div class="cell label-left"><span class="su" data-su="LU3_ROW13_SIS_T1">NB23</span>
+<span class="su" data-su="LU3_ROW13_SIS_T1">NB22</span><div class="textlabel">SIS T1</div></div>
+<div class="cell label-right"><span class="su" data-su="LU3_ROW12_SIS_T1">NA23</span>
+<span class="su" data-su="LU3_ROW12_SIS_T1">NA22</span><div class="textlabel">SIS T1</div></div>
+<div class="cell label-right">
+<span class="su" data-su="94">LSB</span>
+<span class="su" data-su="94">LSA</span>
+<span class="su" data-su="94">LRZ</span>
+<span class="su" data-su="94">LRY</span>
+<span class="su" data-su="94">LRX</span><div class="textlabel">SU94</div></div>
+<div class="cell label-left">
+<span class="su" data-su="81">LPK</span>
+<span class="su" data-su="81">LPL</span>
+<span class="su" data-su="81">LPM</span>
+<span class="su" data-su="81">LPN</span>
+<span class="su" data-su="81">LPO</span><div class="textlabel">SU81</div></div>
+<div class="cell label-right">
+<span class="su" data-su="76">LOP</span>
+<span class="su" data-su="76">LOO</span>
+<span class="su" data-su="76">LON</span>
+<span class="su" data-su="76">LOM</span>
+<span class="su" data-su="76">LOL</span><div class="textlabel">SU76</div></div>
+<div class="cell label-left">
+<span class="su" data-su="63">LLY</span>
+<span class="su" data-su="63">LLZ</span>
+<span class="su" data-su="63">LMA</span>
+<span class="su" data-su="63">LMB</span>
+<span class="su" data-su="63">LMC</span><div class="textlabel">SU63</div></div>
+<div class="cell label-right">
+<span class="su" data-su="58">LLD</span>
+<span class="su" data-su="58">LLC</span>
+<span class="su" data-su="58">LLB</span>
+<span class="su" data-su="58">LLA</span>
+<span class="su" data-su="58">LKZ</span><div class="textlabel">SU58</div></div>
+<div class="cell label-left">
+<span class="su" data-su="45">LIM</span>
+<span class="su" data-su="45">LIN</span>
+<span class="su" data-su="45">LIO</span>
+<span class="su" data-su="45">LIP</span>
+<span class="su" data-su="45">LIQ</span><div class="textlabel">SU45</div></div>
+<div class="cell label-right">
+<span class="su" data-su="40">LHR</span>
+<span class="su" data-su="40">LHQ</span>
+<span class="su" data-su="40">LHP</span>
+<span class="su" data-su="40">LHO</span>
+<span class="su" data-su="40">LHN</span><div class="textlabel">SU40</div></div>
+<div class="cell label-left">
+<span class="su" data-su="27">LFA</span>
+<span class="su" data-su="27">LFB</span>
+<span class="su" data-su="27">LFC</span>
+<span class="su" data-su="27">LFD</span>
+<span class="su" data-su="27">LFE</span><div class="textlabel">SU27</div></div>
+<div class="cell label-right">
+<span class="su" data-su="22">LEF</span>
+<span class="su" data-su="22">LEE</span>
+<span class="su" data-su="22">LED</span>
+<span class="su" data-su="22">LEC</span>
+<span class="su" data-su="22">LEB</span><div class="textlabel">SU22</div></div>
+<div class="cell label-left">
+<span class="su" data-su="9">LBO</span>
+<span class="su" data-su="9">LBP</span>
+<span class="su" data-su="9">LBQ</span>
+<span class="su" data-su="9">LBR</span>
+<span class="su" data-su="9">LBS</span><div class="textlabel">SU9</div></div>
+<div class="cell"></div>
+<div class="lu-label lu-right">LU3</div>
+</div>
+<!-- LU4 -->
+<div class="matrix-row">
+<div class="lu-label">LU4</div>
+<div class="cell label-left"><span class="su" data-su="LU4_ROW13_ROCE_T2_RAIL2">NB20</span>
+<span class="su" data-su="LU4_ROW13_ROCE_T2_RAIL2">NB19</span>
+<span class="su" data-su="LU4_ROW13_ROCE_T2_RAIL2">NB18</span>
+<span class="su" data-su="LU4_ROW13_ROCE_T2_RAIL2">NB17</span><div class="textlabel">ROCE T2 RAIL 2</div></div>
+<div class="cell label-right"><span class="su" data-su="LU4_ROW12_ROCE_T2_RAIL2">NA20</span>
+<span class="su" data-su="LU4_ROW12_ROCE_T2_RAIL2">NA19</span>
+<span class="su" data-su="LU4_ROW12_ROCE_T2_RAIL2">NA18</span>
+<span class="su" data-su="LU4_ROW12_ROCE_T2_RAIL2">NA17</span><div class="textlabel">ROCE T2 RAIL 2</div></div>
+<div class="cell label-right"><span class="su" data-su="93">LRW</span>
+<span class="su" data-su="93">LRV</span>
+<span class="su" data-su="93">LRU</span>
+<span class="su" data-su="93">LRT</span>
+<span class="su" data-su="93">LRS</span><div class="textlabel">SU93</div></div>
+<div class="cell label-left"><span class="su" data-su="82">LPP</span>
+<span class="su" data-su="82">LPQ</span>
+<span class="su" data-su="82">LPR</span>
+<span class="su" data-su="82">LPS</span>
+<span class="su" data-su="82">LPT</span><div class="textlabel">SU82</div></div>
+<div class="cell label-right"><span class="su" data-su="75">LOK</span>
+<span class="su" data-su="75">LOJ</span>
+<span class="su" data-su="75">LOI</span>
+<span class="su" data-su="75">LOH</span>
+<span class="su" data-su="75">LOG</span><div class="textlabel">SU75</div></div>
+<div class="cell label-left"><span class="su" data-su="64">LMD</span>
+<span class="su" data-su="64">LME</span>
+<span class="su" data-su="64">LMF</span>
+<span class="su" data-su="64">LMG</span>
+<span class="su" data-su="64">LMH</span><div class="textlabel">SU64</div></div>
+<div class="cell label-right"><span class="su" data-su="57">LKY</span>
+<span class="su" data-su="57">LKX</span>
+<span class="su" data-su="57">LKW</span>
+<span class="su" data-su="57">LKV</span>
+<span class="su" data-su="57">LKU</span><div class="textlabel">SU57</div></div>
+<div class="cell label-left"><span class="su" data-su="46">LIR</span>
+<span class="su" data-su="46">LIS</span>
+<span class="su" data-su="46">LIT</span>
+<span class="su" data-su="46">LIU</span>
+<span class="su" data-su="46">LIV</span><div class="textlabel">SU46</div></div>
+<div class="cell label-right"><span class="su" data-su="39">LHM</span>
+<span class="su" data-su="39">LHL</span>
+<span class="su" data-su="39">LHK</span>
+<span class="su" data-su="39">LHJ</span>
+<span class="su" data-su="39">LHI</span><div class="textlabel">SU39</div></div>
+<div class="cell label-left"><span class="su" data-su="28">LFF</span>
+<span class="su" data-su="28">LFG</span>
+<span class="su" data-su="28">LFH</span>
+<span class="su" data-su="28">LFI</span>
+<span class="su" data-su="28">LFJ</span><div class="textlabel">SU28</div></div>
+<div class="cell label-right"><span class="su" data-su="21">LEA</span>
+<span class="su" data-su="21">LDZ</span>
+<span class="su" data-su="21">LDY</span>
+<span class="su" data-su="21">LDX</span>
+<span class="su" data-su="21">LDW</span><div class="textlabel">SU21</div></div>
+<div class="cell label-left"><span class="su" data-su="10">LBT</span>
+<span class="su" data-su="10">LBU</span>
+<span class="su" data-su="10">LBV</span>
+<span class="su" data-su="10">LBW</span>
+<span class="su" data-su="10">LBX</span><div class="textlabel">SU10</div></div>
+<div class="cell label-right"><span class="su" data-su="6">LBD</span>
+<span class="su" data-su="6">LBC</span>
+<span class="su" data-su="6">LBB</span>
+<span class="su" data-su="6">LBA</span>
+<span class="su" data-su="6">LAZ</span><div class="textlabel">SU6</div></div>
+<div class="lu-label lu-right">LU4</div>
+</div>
+<!-- LU5 -->
+<div class="matrix-row">
+<div class="lu-label">LU5</div>
+<div class="cell label-left multi3">
+    <span class="su" data-su="LU5_ROW13_SIS_T1">NB16</span>
+    <span class="su" data-su="LU5_ROW13_IPMI_MC">NB15</span>
+    <span class="su" data-su="LU5_ROW13_SIS_NM">NB14</span>
+
+    <div class="textlabel">SIS T1</div>
+    <div class="textlabel">IPMI MC</div>
+    <div class="textlabel">SIS NM</div>
+</div>
+<div class="cell label-right multi3">
+    <span class="su" data-su="LU5_ROW12_SIS_T1">NA16</span>
+    <span class="su" data-su="LU5_ROW12_IPMI_MC">NA15</span>
+    <span class="su" data-su="LU5_ROW12_SIS_NM">NA14</span>
+
+    <div class="textlabel">SIS T1</div>
+    <div class="textlabel">IPMI MC</div>
+    <div class="textlabel">SIS NM</div>
+</div>
+<div class="cell label-right"><span class="su" data-su="92">LRR</span>
+<span class="su" data-su="92">LRQ</span>
+<span class="su" data-su="92">LRP</span>
+<span class="su" data-su="92">LRO</span>
+<span class="su" data-su="92">LRN</span><div class="textlabel">SU92</div></div>
+<div class="cell label-left"><span class="su" data-su="83">LPU</span>
+<span class="su" data-su="83">LPV</span>
+<span class="su" data-su="83">LPW</span>
+<span class="su" data-su="83">LPX</span>
+<span class="su" data-su="83">LPY</span><div class="textlabel">SU83</div></div>
+<div class="cell label-right"><span class="su" data-su="74">LOF</span>
+<span class="su" data-su="74">LOE</span>
+<span class="su" data-su="74">LOD</span>
+<span class="su" data-su="74">LOC</span>
+<span class="su" data-su="74">LOB</span><div class="textlabel">SU74</div></div>
+<div class="cell label-left"><span class="su" data-su="65">LMI</span>
+<span class="su" data-su="65">LMJ</span>
+<span class="su" data-su="65">LMK</span>
+<span class="su" data-su="65">LML</span>
+<span class="su" data-su="65">LMM</span><div class="textlabel">SU65</div></div>
+<div class="cell label-right"><span class="su" data-su="56">LKT</span>
+<span class="su" data-su="56">LKS</span>
+<span class="su" data-su="56">LKR</span>
+<span class="su" data-su="56">LKQ</span>
+<span class="su" data-su="56">LKP</span><div class="textlabel">SU56</div></div>
+<div class="cell label-left"><span class="su" data-su="47">LIW</span>
+<span class="su" data-su="47">LIX</span>
+<span class="su" data-su="47">LIY</span>
+<span class="su" data-su="47">LIZ</span>
+<span class="su" data-su="47">LJA</span><div class="textlabel">SU47</div></div>
+<div class="cell label-right"><span class="su" data-su="38">LHH</span>
+<span class="su" data-su="38">LHG</span>
+<span class="su" data-su="38">LHF</span>
+<span class="su" data-su="38">LHE</span>
+<span class="su" data-su="38">LHD</span><div class="textlabel">SU38</div></div>
+<div class="cell label-left"><span class="su" data-su="29">LFK</span>
+<span class="su" data-su="29">LFL</span>
+<span class="su" data-su="29">LFM</span>
+<span class="su" data-su="29">LFN</span>
+<span class="su" data-su="29">LFO</span><div class="textlabel">SU29</div></div>
+<div class="cell label-right"><span class="su" data-su="20">LDV</span>
+<span class="su" data-su="20">LDU</span>
+<span class="su" data-su="20">LDT</span>
+<span class="su" data-su="20">LDS</span>
+<span class="su" data-su="20">LDR</span><div class="textlabel">SU20</div></div>
+<div class="cell label-left"><span class="su" data-su="11">LBY</span>
+<span class="su" data-su="11">LBZ</span>
+<span class="su" data-su="11">LCA</span>
+<span class="su" data-su="11">LCB</span>
+<span class="su" data-su="11">LCC</span><div class="textlabel">SU11</div></div>
+<div class="cell label-right"><span class="su" data-su="5">LAY</span>
+<span class="su" data-su="5">LAX</span>
+<span class="su" data-su="5">LAW</span>
+<span class="su" data-su="5">LAV</span>
+<span class="su" data-su="5">LAU</span><div class="textlabel">SU5</div></div>
+<div class="lu-label lu-right">LU5</div>
+</div>
+<!-- LU6 -->
+<div class="matrix-row">
+<div class="lu-label">LU6</div>
+<div class="cell label-left"><span class="su" data-su="LU6_ROW13_SIS_T1">NB13</span>
+<span class="su" data-su="LU6_ROW13_IPMI_MC">NB12</span><div class="textlabel">SIS T1</div></div>
+<div class="cell label-right"><span class="su" data-su="LU6_ROW12_SIS_T1">NA13</span>
+<span class="su" data-su="LU6_ROW12_IPMI_MC">NA12</span><div class="textlabel">SIS T1</div></div>
+<div class="cell label-right"><span class="su" data-su="91">LRM</span>
+<span class="su" data-su="91">LRL</span>
+<span class="su" data-su="91">LRK</span>
+<span class="su" data-su="91">LRJ</span>
+<span class="su" data-su="91">LRI</span><div class="textlabel">SU91</div></div>
+<div class="cell label-left"><span class="su" data-su="84">LPZ</span>
+<span class="su" data-su="84">LQA</span>
+<span class="su" data-su="84">LQB</span>
+<span class="su" data-su="84">LQC</span>
+<span class="su" data-su="84">LQD</span><div class="textlabel">SU84</div></div>
+<div class="cell label-right"><span class="su" data-su="73">LOA</span>
+<span class="su" data-su="73">LNZ</span>
+<span class="su" data-su="73">LNY</span>
+<span class="su" data-su="73">LNX</span>
+<span class="su" data-su="73">LNW</span><div class="textlabel">SU73</div></div>
+<div class="cell label-left"><span class="su" data-su="66">LMN</span>
+<span class="su" data-su="66">LMO</span>
+<span class="su" data-su="66">LMP</span>
+<span class="su" data-su="66">LMQ</span>
+<span class="su" data-su="66">LMR</span><div class="textlabel">SU66</div></div>
+<div class="cell label-right"><span class="su" data-su="55">LKO</span>
+<span class="su" data-su="55">LKN</span>
+<span class="su" data-su="55">LKM</span>
+<span class="su" data-su="55">LKL</span>
+<span class="su" data-su="55">LKK</span><div class="textlabel">SU55</div></div>
+<div class="cell label-left"><span class="su" data-su="48">LJB</span>
+<span class="su" data-su="48">LJC</span>
+<span class="su" data-su="48">LJD</span>
+<span class="su" data-su="48">LJE</span>
+<span class="su" data-su="48">LJF</span><div class="textlabel">SU48</div></div>
+<div class="cell label-right"><span class="su" data-su="37">LHC</span>
+<span class="su" data-su="37">LHB</span>
+<span class="su" data-su="37">LHA</span>
+<span class="su" data-su="37">LGZ</span>
+<span class="su" data-su="37">LGY</span><div class="textlabel">SU37</div></div>
+<div class="cell label-left"><span class="su" data-su="30">LFP</span>
+<span class="su" data-su="30">LFQ</span>
+<span class="su" data-su="30">LFR</span>
+<span class="su" data-su="30">LFS</span>
+<span class="su" data-su="30">LFT</span><div class="textlabel">SU30</div></div>
+<div class="cell label-right"><span class="su" data-su="19">LDQ</span>
+<span class="su" data-su="19">LDP</span>
+<span class="su" data-su="19">LDO</span>
+<span class="su" data-su="19">LDN</span>
+<span class="su" data-su="19">LDM</span><div class="textlabel">SU19</div></div>
+<div class="cell label-left"><span class="su" data-su="12">LCD</span>
+<span class="su" data-su="12">LCE</span>
+<span class="su" data-su="12">LCF</span>
+<span class="su" data-su="12">LCG</span>
+<span class="su" data-su="12">LCH</span><div class="textlabel">SU12</div></div>
+<div class="cell label-right"><span class="su" data-su="4">LAT</span>
+<span class="su" data-su="4">LAS</span>
+<span class="su" data-su="4">LAR</span>
+<span class="su" data-su="4">LAQ</span>
+<span class="su" data-su="4">LAP</span><div class="textlabel">SU4</div></div>
+<div class="lu-label lu-right">LU6</div>
+</div>
+<!-- LU7 -->
+<div class="matrix-row">
+<div class="lu-label">LU7</div>
+<div class="cell label-left"><span class="su" data-su="LU7_ROW13_ROCE_T2_RAIL3">NB10</span>
+<span class="su" data-su="LU7_ROW13_ROCE_T2_RAIL3">NB09</span>
+<span class="su" data-su="LU7_ROW13_ROCE_T2_RAIL3">NB08</span>
+<span class="su" data-su="LU7_ROW13_ROCE_T2_RAIL3">NB07</span><div class="textlabel">ROCE T2 RAIL 3</div></div>
+<div class="cell label-right"><span class="su" data-su="LU7_ROW12_ROCE_T2_RAIL3">NA10</span>
+<span class="su" data-su="LU7_ROW12_ROCE_T2_RAIL3">NA09</span>
+<span class="su" data-su="LU7_ROW12_ROCE_T2_RAIL3">NA08</span>
+<span class="su" data-su="LU7_ROW12_ROCE_T2_RAIL3">NA07</span><div class="textlabel">ROCE T2 RAIL 3</div></div>
+<div class="cell label-right"><span class="su" data-su="90">LRH</span>
+<span class="su" data-su="90">LRG</span>
+<span class="su" data-su="90">LRF</span>
+<span class="su" data-su="90">LRE</span>
+<span class="su" data-su="90">LRD</span><div class="textlabel">SU90</div></div>
+<div class="cell label-left"><span class="su" data-su="85">LQE</span>
+<span class="su" data-su="85">LQF</span>
+<span class="su" data-su="85">LQG</span>
+<span class="su" data-su="85">LQH</span>
+<span class="su" data-su="85">LQI</span><div class="textlabel">SU85</div></div>
+<div class="cell label-right"><span class="su" data-su="72">LNV</span>
+<span class="su" data-su="72">LNU</span>
+<span class="su" data-su="72">LNT</span>
+<span class="su" data-su="72">LNS</span>
+<span class="su" data-su="72">LNR</span><div class="textlabel">SU72</div></div>
+<div class="cell label-left"><span class="su" data-su="67">LMS</span>
+<span class="su" data-su="67">LMT</span>
+<span class="su" data-su="67">LMU</span>
+<span class="su" data-su="67">LMV</span>
+<span class="su" data-su="67">LMW</span><div class="textlabel">SU67</div></div>
+<div class="cell label-right"><span class="su" data-su="54">LKJ</span>
+<span class="su" data-su="54">LKI</span>
+<span class="su" data-su="54">LKH</span>
+<span class="su" data-su="54">LKG</span>
+<span class="su" data-su="54">LKF</span><div class="textlabel">SU54</div></div>
+<div class="cell label-left"><span class="su" data-su="49">LJG</span>
+<span class="su" data-su="49">LJH</span>
+<span class="su" data-su="49">LJI</span>
+<span class="su" data-su="49">LJL</span>
+<span class="su" data-su="49">LJK</span><div class="textlabel">SU49</div></div>
+<div class="cell label-right"><span class="su" data-su="36">LGX</span>
+<span class="su" data-su="36">LGW</span>
+<span class="su" data-su="36">LGV</span>
+<span class="su" data-su="36">LGU</span>
+<span class="su" data-su="36">LGT</span><div class="textlabel">SU36</div></div>
+<div class="cell label-left"><span class="su" data-su="31">LFU</span>
+<span class="su" data-su="31">LFV</span>
+<span class="su" data-su="31">LFW</span>
+<span class="su" data-su="31">LFX</span>
+<span class="su" data-su="31">LFY</span><div class="textlabel">SU31</div></div>
+<div class="cell label-right"><span class="su" data-su="18">LDL</span>
+<span class="su" data-su="18">LDK</span>
+<span class="su" data-su="18">LDJ</span>
+<span class="su" data-su="18">LDI</span>
+<span class="su" data-su="18">LDH</span><div class="textlabel">SU18</div></div>
+<div class="cell label-left"><span class="su" data-su="13">LCI</span>
+<span class="su" data-su="13">LCJ</span>
+<span class="su" data-su="13">LCK</span>
+<span class="su" data-su="13">LCL</span>
+<span class="su" data-su="13">LCM</span><div class="textlabel">SU13</div></div>
+<div class="cell"><span class="su" data-su="3">LAO</span>
+<span class="su" data="" su="13">LAN</span>
+<span class="su" data-su="13">LAM</span>
+<span class="su" data-su="13">LAL</span>
+<span class="su" data-su="13">LAK</span></div>
+<div class="lu-label lu-right">LU7</div>
+</div>
+<!-- LU8 -->
+<div class="matrix-row">
+<div class="lu-label">LU8</div>
+<div class="cell label-left"><span class="su" data-su="LU8_ROW13_SIS_T1">NB06</span>
+<span class="su" data-su="LU8_ROW13_SIS_T1">NB05</span><div class ="textlabel">SIS T1</div></div>
+<div class="cell label-right"><span class="su" data-su="LU8_ROW12_SIS_T1">NA06</span>
+<span class="su" data-su="LU8_ROW12_SIS_T1">NA05</span><div class ="textlabel">SIS T1</div></div>
+<div class="cell label-right"><span class="su" data-su="89">LRC</span>
+<span class="su" data-su="89">LRB</span>
+<span class="su" data-su="89">LRA</span>
+<span class="su" data-su="89">LQZ</span>
+<span class="su" data-su="89">LQY</span><div class="textlabel">SU89</div></div>
+<div class="cell label-left"><span class="su" data-su="86">LQJ</span>
+<span class="su" data-su="86">LQK</span>
+<span class="su" data-su="86">LQL</span>
+<span class="su" data-su="86">LQM</span>
+<span class="su" data-su="86">LQN</span><div class="textlabel">SU86</div></div>
+<div class="cell label-right"><span class="su" data-su="71">LNQ</span>
+<span class="su" data-su="71">LNP</span>
+<span class="su" data-su="71">LNO</span>
+<span class="su" data-su="71">LNN</span>
+<span class="su" data-su="71">LNM</span><div class="textlabel">SU71</div></div>
+<div class="cell label-left"><span class="su" data-su="68">LMX</span>
+<span class="su" data-su="68">LMY</span>
+<span class="su" data-su="68">LMZ</span>
+<span class="su" data-su="68">LNA</span>
+<span class="su" data-su="68">LNB</span><div class="textlabel">SU68</div></div>
+<div class="cell label-right"><span class="su" data-su="53">LKE</span>
+<span class="su" data-su="53">LKD</span>
+<span class="su" data-su="53">LKC</span>
+<span class="su" data-su="53">LKB</span>
+<span class="su" data-su="53">LKA</span><div class="textlabel">SU53</div></div>
+<div class="cell label-left"><span class="su" data-su="50">LJL</span>
+<span class="su" data-su="50">LJM</span>
+<span class="su" data-su="50">LJN</span>
+<span class="su" data-su="50">LJO</span>
+<span class="su" data-su="50">LJP</span><div class="textlabel">SU50</div></div>
+<div class="cell label-right"><span class="su" data-su="35">LGS</span>
+<span class="su" data-su="35">LGR</span>
+<span class="su" data-su="35">LGQ</span>
+<span class="su" data-su="35">LGP</span>
+<span class="su" data-su="35">LGO</span><div class="textlabel">SU35</div></div>
+<div class="cell label-left"><span class="su" data-su="32">LFZ</span>
+<span class="su" data-su="32">LGA</span>
+<span class="su" data-su="32">LGB</span>
+<span class="su" data-su="32">LGC</span>
+<span class="su" data-su="32">LGD</span><div class="textlabel">SU32</div></div>
+<div class="cell label-right"><span class="su" data-su="17">LDG</span>
+<span class="su" data-su="17">LDF</span>
+<span class="su" data-su="17">LDE</span>
+<span class="su" data-su="17">LDD</span>
+<span class="su" data-su="17">LDC</span><div class="textlabel">SU17</div></div>
+<div class="cell label-left"><span class="su" data-su="14">LCN</span>
+<span class="su" data-su="14">LCO</span>
+<span class="su" data-su="14">LCP</span>
+<span class="su" data-su="14">LCQ</span>
+<span class="su" data-su="14">LCR</span><div class="textlabel">SU14</div></div>
+<div class="cell label-right"><span class="su" data-su="2">LAJ</span>
+<span class="su" data-su="2">LAI</span>
+<span class="su" data-su="2">LAH</span>
+<span class="su" data-su="2">LAG</span>
+<span class="su" data-su="2">LAF</span><div class="textlabel">SU2</div></div>
+<div class="lu-label lu-right">LU8</div>
+</div>
+<!-- LU9 -->
+<div class="matrix-row">
+<div class="lu-label">LU9</div>
+<div class="cell label-left"><span class="su" data-su="LU9_ROW13_ROCE_T2_RAIL4">NB04</span>
+<span class="su" data-su="LU9_ROW13_ROCE_T2_RAIL4">NB03</span>
+<span class="su" data-su="LU9_ROW13_ROCE_T2_RAIL4">NB02</span>
+<span class="su" data-su="LU9_ROW13_ROCE_T2_RAIL4">NB01</span><div class="textlabel">ROCE T2 RAIL4</div></div>
+<div class="cell label-right"><span class="su" data-su="LU9_ROW12_ROCE_T2_RAIL4">NA04</span>
+<span class="su" data-su="LU9_ROW12_ROCE_T2_RAIL4">NA03</span>
+<span class="su" data-su="LU9_ROW12_ROCE_T2_RAIL4">NA02</span>
+<span class="su" data-su="LU9_ROW12_ROCE_T2_RAIL4">NA01</span><div class="textlabel">ROCE T2 RAIL4</div></div>
+<div class="cell label-right"><span class="su" data-su="88">LQX</span>
+<span class="su" data-su="88">LQW</span>
+<span class="su" data-su="88">LQV</span>
+<span class="su" data-su="88">LQU</span>
+<span class="su" data-su="88">LQT</span><div class="textlabel">SU88</div></div>
+<div class="cell label-left"><span class="su" data-su="87">LQO</span>
+<span class="su" data-su="87">LQP</span>
+<span class="su" data-su="87">LQQ</span>
+<span class="su" data-su="87">LQR</span>
+<span class="su" data-su="87">LQS</span><div class="textlabel">SU87</div></div>
+<div class="cell label-right"><span class="su" data-su="70">LNL</span>
+<span class="su" data-su="70">LNK</span>
+<span class="su" data-su="70">LNJ</span>
+<span class="su" data-su="70">LNI</span>
+<span class="su" data-su="70">LNH</span><div class="textlabel">SU70</div></div>
+<div class="cell label-left"><span class="su" data-su="69">LNC</span>
+<span class="su" data-su="69">LND</span>
+<span class="su" data-su="69">LNE</span>
+<span class="su" data-su="69">LNF</span>
+<span class="su" data-su="69">LNG</span><div class="textlabel">SU69</div></div>
+<div class="cell label-right"><span class="su" data-su="52">LJZ</span>
+<span class="su" data-su="52">LJY</span>
+<span class="su" data-su="52">LJX</span>
+<span class="su" data-su="52">LJW</span>
+<span class="su" data-su="52">LJV</span><div class="textlabel">SU52</div></div>
+<div class="cell label-left"><span class="su" data-su="51">LJQ</span>
+<span class="su" data-su="51">LJR</span>
+<span class="su" data-su="51">LJS</span>
+<span class="su" data-su="51">LJT</span>
+<span class="su" data-su="51">LJU</span><div class="textlabel">SU51</div></div>
+<div class="cell label-right"><span class="su" data-su="34">LGN</span>
+<span class="su" data-su="34">LGM</span>
+<span class="su" data-su="34">LGL</span>
+<span class="su" data-su="34">LGK</span>
+<span class="su" data-su="34">LGJ</span><div class="textlabel">SU34</div></div>
+<div class="cell label-left"><span class="su" data-su="33">LGE</span>
+<span class="su" data-su="33">LGF</span>
+<span class="su" data-su="33">LGG</span>
+<span class="su" data-su="33">LGH</span>
+<span class="su" data-su="33">LGI</span><div class="textlabel">SU33</div></div>
+<div class="cell label-right"><span class="su" data-su="16">LDB</span>
+<span class="su" data-su="16">LDA</span>
+<span class="su" data-su="16">LCZ</span>
+<span class="su" data-su="16">LCY</span>
+<span class="su" data-su="16">LCX</span><div class="textlabel">SU16</div></div>
+<div class="cell label-left"><span class="su" data-su="15">LCS</span>
+<span class="su" data-su="15">LCT</span>
+<span class="su" data-su="15">LCU</span>
+<span class="su" data-su="15">LCV</span>
+<span class="su" data-su="15">LCW</span><div class="textlabel">SU15</div></div>
+<div class="cell label-right"><span class="su" data-su="1">LAE</span>
+<span class="su" data-su="1">LAD</span>
+<span class="su" data-su="1">LAC</span>
+<span class="su" data-su="1">LAB</span>
+<span class="su" data-su="1">LAA</span><div class="textlabel">SU1</div></div>
+<div class="lu-label lu-right">LU9</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+<aside aria-label="Process panel" class="panel">
+<div class="panel-top">
+<div class="panel-title" id="ptPanelTitle">—</div>
+<div class="panel-sub" id="ptPanelSub"></div>
+<div class="bars" id="ptBars">
+<div class="bar-row">
+<div class="bar-label">NOT STARTED</div>
+<div class="bar-track"><div class="bar-fill" id="barNotStarted" style="width:0%"></div></div>
+<div class="bar-pct" id="pctNotStarted">0%</div>
+</div>
+<div class="bar-row">
+<div class="bar-label">IN PROGRESS</div>
+<div class="bar-track"><div class="bar-fill" id="barInProgress" style="width:0%"></div></div>
+<div class="bar-pct" id="pctInProgress">0%</div>
+</div>
+<div class="bar-row">
+<div class="bar-label">QC DONE</div>
+<div class="bar-track"><div class="bar-fill" id="barQCDone" style="width:0%"></div></div>
+<div class="bar-pct" id="pctQCDone">0%</div>
+</div>
+</div>
+<div aria-label="Sidebar search" class="search search-side">
+<span aria-hidden="true" class="search-ico">⌕</span>
+<input class="search-input" id="ptSideSearch" placeholder="Search"/>
+</div>
+</div>
+<div class="panel-section">
+<div class="section-title">Process update</div>
+<div class="group">
+<div class="label">Selected</div>
+<div class="selected">
+<div class="selected-title">—</div>
+<div class="selected-sub"></div>
+</div>
+<div class="selected-actions">
+<button class="btn-ghost" id="ptClearSel" type="button">Clear</button>
+</div>
+<div class="subgroup">
+<div class="label">Rack (within selected SU)</div>
+<select class="select" disabled="" id="ptRack"></select>
+<div class="hint" id="ptRackHint"></div>
+</div>
+<div class="subgroup">
+<div class="label">Process (within selected rack)</div>
+<select class="select" disabled="" id="ptRackProcess"></select>
+<div class="hint" id="ptRackProcessHint"></div>
+</div>
+</div>
+<div class="group">
+<div class="label">Status (for selected rack + selected process)</div>
+<select class="select" disabled="" id="ptStatus"></select>
+<div class="hint" id="ptStatusHint"></div>
+</div>
+<div class="group">
+<div class="label">Notes</div>
+<textarea class="textarea" disabled="" id="ptNote" placeholder="Enter a description..."></textarea>
+</div>
+<div class="group">
+<button class="btn-primary" disabled="" id="ptApplyStatus" type="button">Update Status</button>
+<div class="hint" id="ptApplyHint"></div>
+</div>
+</div>
+</aside>
+<div aria-hidden="true" class="pt-modal" id="ptRespModal">
+<div aria-labelledby="ptRespTitle" aria-modal="true" class="pt-modal-card" role="dialog">
+<div class="pt-modal-title" id="ptRespTitle">Who is changing the status?</div>
+<div class="pt-modal-body">
+<label class="label" for="ptRespSelect">Responsible</label>
+<select class="select" id="ptRespSelect"></select>
+</div>
+<div class="pt-modal-actions">
+<button class="btn-ghost" id="ptRespCancel" type="button">Cancel</button>
+<button class="btn-primary" id="ptRespOk" type="button">OK</button>
+</div>
+</div>
+</div>
+</main>
+</body>
 </html>

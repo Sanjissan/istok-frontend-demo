@@ -1,3 +1,5 @@
-window.__CONFIG__ = {
-  API_BASE_URL: "http://database-istok1-dev-alb-793878217.us-east-1.elb.amazonaws.com"
+window.APP_CONFIG = {
+  // В проде (CloudFront) будет работать как https://<cloudfront>/api/...
+  // Локально тоже ок, если ты проксируешь или тестишь с полным URL ниже.
+  API_BASE_URL: ""
 };

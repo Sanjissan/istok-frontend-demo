@@ -1,0 +1,60 @@
+name: Deploy Frontend to S3 + CloudFront
+
+on:
+  push:
+    branches: [ "main" ]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    env:
+      AWS_REGION: us-east-1
+      S3_BUCKET: database-istok1-dev-frontend
+      # Впиши ID твоей CloudFront distribution (НЕ domain name)
+      CLOUDFRONT_DISTRIBUTION_ID: E2GHV05QFRZUK8
+      ROLE_TO_ASSUME: arn:aws:iam::341823313809:role/database-istok1-dev-github-actions-ecr-push-demo
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Show AWS CLI version
+        run: aws --version
+
+      # 1) Загружаем ассеты с долгим кешем (кроме index.html)
+      - name: Upload assets (long cache)
+        run: |
+          set -euo pipefail
+          aws s3 sync . "s3://${S3_BUCKET}/" \
+            --delete \
+            --exclude ".git/*" \
+            --exclude ".github/*" \
+            --exclude "index.html" \
+            --cache-control "public,max-age=31536000,immutable"
+
+      # 2) index.html — без кеша, чтобы изменения сразу подхватывались
+      - name: Upload index.html (no cache)
+        run: |
+          set -euo pipefail
+          aws s3 cp "index.html" "s3://${S3_BUCKET}/index.html" \
+            --cache-control "no-store, no-cache, must-revalidate, max-age=0" \
+            --content-type "text/html; charset=utf-8"
+
+      # 3) Инвалидация CloudFront
+      - name: Invalidate CloudFront
+        run: |
+          set -euo pipefail
+          aws cloudfront create-invalidation \
+            --distribution-id "${CLOUDFRONT_DISTRIBUTION_ID}" \
+            --paths "/*"
