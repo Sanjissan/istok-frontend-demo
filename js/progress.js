@@ -1,7 +1,7 @@
 // js/progress_combined.js
 (function () {
   // ==========================================================
-  // 1. API & CONFIG (Back-end Logic)
+  // 1. API & CONFIG
   // ==========================================================
   const RESPONSIBLES = [
     "Admin", "Bata Khodzhiev", "Badma Matsakov", "Saigid Israfilov",
@@ -11,60 +11,14 @@
     "Nikita Hrachov", "Rovshan Akhmedov", "Ruslan Blahyi", "Valerii Smolentsev"
   ];
 
-  function cleanBase(url) {
-    return String(url || "").trim().replace(/\/+$/, "");
-  }
-
-  function resolveBase() {
-    const cfg = window.APP_CONFIG && window.APP_CONFIG.API_BASE_URL;
-    if (cfg !== undefined && cfg !== null) return cleanBase(cfg);
-    const fromStorage = localStorage.getItem("pt_api_base_url");
-    if (fromStorage) return cleanBase(fromStorage);
-    return "";
-  }
-
-  async function fetchJSON(pathOrUrl, opts = {}) {
-    const base = resolveBase();
-    const url = /^https?:\/\//i.test(pathOrUrl) ? pathOrUrl : base ? `${base}${pathOrUrl}` : pathOrUrl;
-
-    const res = await fetch(url, {
-      ...opts,
-      headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
-    });
-
-    const text = await res.text();
-    let body;
-    try { body = text ? JSON.parse(text) : null; } catch { body = text; }
-
-    if (!res.ok) {
-      throw new Error(`API error ${res.status}: ${typeof body === "string" ? body : JSON.stringify(body)}`);
-    }
-    return body;
-  }
-
-  async function apiGetRackProcessStatus() {
-    if (window.PT_API && typeof window.PT_API.getRackProcessStatus === "function") {
-      return window.PT_API.getRackProcessStatus();
-    }
-    return fetchJSON("/api/views/v_rack_process_status");
-  }
-
-  async function apiUpdateRunStatus(rack_process_run_id, { status_id, responsible_employee_id, note } = {}) {
-    if (window.PT_API && typeof window.PT_API.updateRunStatus === "function") {
-      return window.PT_API.updateRunStatus(rack_process_run_id, { status_id, responsible_employee_id, note });
-    }
-    return fetchJSON("/api/runs/status", {
-      method: "POST",
-      body: JSON.stringify({ rack_process_run_id, status_id, responsible_employee_id, note }),
-    });
-  }
-
-  // ==========================================================
-  // 2. TEMPLATES & CONSTANTS
-  // ==========================================================
+  // Хранилище живых данных с бэкенда
   let LIVE_ROWS = [];
+  // Карта прогресса для быстрой отрисовки (Key: "RackName|ProcessName" => Code)
   const PROGRESS = {};
 
+  // ==========================================================
+  // 2. TEMPLATES & STATUSES
+  // ==========================================================
   const T_A_1_7 = { 1: "NOT STARTED", 2: "DRESSING IN PROGRESS", 3: "DRESSING DONE", 4: "PATCHING IN PROGRESS", 5: "PATCHING DONE", 6: "QC DONE", 7: "BLOCKED" };
   const T_B_1_5 = { 1: "NOT STARTED", 2: "IN PROGRESS", 3: "DONE", 4: "QC DONE", 5: "BLOCKED" };
   const T_IPMI_CAT6 = { 1: "NOT STARTED", 2: "PULLING IN PROGRESS", 3: "PATCHING IN PROGRESS", 4: "PATCHING DONE", 5: "TONING IS DONE", 6: "QC DONE", 7: "BLOCKED" };
@@ -88,6 +42,7 @@
 
   const ALL_PROCESSES = Object.keys(PROCESS_TEMPLATES);
 
+  // Вычисление кодов завершения (QC DONE)
   const COMPLETION_CODE = {};
   for (const [proc, tpl] of Object.entries(PROCESS_TEMPLATES)) {
     let qc = null;
@@ -112,7 +67,7 @@
   };
 
   // ==========================================================
-  // 3. DATA STRUCTURES (Fixed SU_RACKS)
+  // 3. RACK DATA STRUCTURES
   // ==========================================================
   const SU_RACKS = (function () {
     return {
@@ -218,7 +173,7 @@
   const CELL_RACKS = {
     "LU1_ROW12_SIS_T1": [{ id: "NA29", name: "NA29", type: "SIS T1", processes: (PROCESS_BY_TYPE["SIS T1"] || []) }],
     "LU1_ROW12_SIS_NM": [{ id: "NA05", name: "NA28", type: "SIS NM", processes: (PROCESS_BY_TYPE["SIS NM"] || []) }],
-    "LU1_ROW13_SIS_T1": [{ id: "NB29", name: "NB29", type: "SIS NM", processes: (PROCESS_BY_TYPE["SIS NM"] || []) }],
+    "LU1_ROW13_SIS_T1": [{ id: "NB28", name: "NB28", type: "SIS T1", processes: (PROCESS_BY_TYPE["SIS T1"] || []) }, { id: "NB29", name: "NB29", type: "SIS T1", processes: (PROCESS_BY_TYPE["SIS T1"] || []) }],
     "LU1_ROW13_SIS_NM": [{ id: "NB28", name: "NB28", type: "SIS NM", processes: (PROCESS_BY_TYPE["SIS NM"] || []) }],
     "LU2_ROW12_ROCE_T2_RAIL1": [{ id: "NA24", name: "NA24", type: "ROCE T2", processes: (PROCESS_BY_TYPE["ROCE T2"] || []) }, { id: "NA25", name: "NA25", type: "ROCE T2", processes: (PROCESS_BY_TYPE["ROCE T2"] || []) }, { id: "NA26", name: "NA26", type: "ROCE T2", processes: (PROCESS_BY_TYPE["ROCE T2"] || []) }, { id: "NA27", name: "NA27", type: "ROCE T2", processes: (PROCESS_BY_TYPE["ROCE T2"] || []) }],
     "LU2_ROW13_ROCE_T2_RAIL1": [{ id: "NB24", name: "NB24", type: "ROCE T2", processes: (PROCESS_BY_TYPE["ROCE T2"] || []) }, { id: "NB25", name: "NB25", type: "ROCE T2", processes: (PROCESS_BY_TYPE["ROCE T2"] || []) }, { id: "NB26", name: "NB26", type: "ROCE T2", processes: (PROCESS_BY_TYPE["ROCE T2"] || []) }, { id: "NB27", name: "NB27", type: "ROCE T2", processes: (PROCESS_BY_TYPE["ROCE T2"] || []) }],
@@ -298,9 +253,9 @@
     return null;
   }
 
+  // --- YOUR CUSTOM COLORS ---
   function statusLabelToKey(label) {
     const t = String(label || "").toLowerCase().trim();
-
     const keys = new Set(["yellow", "orange", "cyan", "blue", "green", "red", "purple", "default"]);
     if (keys.has(t)) return t;
     if (t.includes("done") && t.includes("dressing done")) return "orange";
@@ -309,22 +264,17 @@
     if (t.includes("blocked")) return "red";
     if (t.includes("qc")) return "green";
     if (t.includes("toning")) return "purple";
-
     // 2) SIS
     if (t.includes("sis") && t.includes("in progress")) return "yellow";
     if (t.includes("sis") && (t.includes("is done") || t.endsWith("done") || t.includes(" done"))) return "orange";
-
     // 3) FULL SET
     if (t.includes("full set") && t.includes("in progress")) return "cyan";
     if (t.includes("full set") && (t.includes("is done") || t.endsWith("done") || t.includes(" done"))) return "blue";
-
     // 4) fallback
     if (t.includes("in progress")) return "yellow";
     if (t.includes("done")) return "blue";
-
     return "default";
   }
-
 
   function statusLabelToDot(label) {
     const k = statusLabelToKey(label);
@@ -349,29 +299,40 @@
     return (h >>> 0).toString(36);
   }
 
+  // --------------------------------------------------------
+  // SYNC FROM BACKEND
+  // --------------------------------------------------------
   async function syncProgressFromBackend() {
+    // If no API, do nothing
+    if (!window.PT_API || !window.PT_API.getRackProcessStatus) return;
+
     try {
-      const rows = await apiGetRackProcessStatus();
+      // 1. Fetch rows from DB
+      const rows = await window.PT_API.getRackProcessStatus();
       LIVE_ROWS = Array.isArray(rows) ? rows : [];
 
+      // 2. Map rows to our PROGRESS object for the UI
       for (const r of LIVE_ROWS) {
         const base = normalizeRackBase(r);
         const proc = normalizeProcessName(r);
         const statusLabel = r.current_status || r.status || r.status_name || r.state;
+
         if (!base || !proc) continue;
+
         const tpl = PROCESS_TEMPLATES[proc];
         if (!tpl) continue;
+
         const code = statusToCode(tpl, statusLabel);
         PROGRESS[`${base}|${proc}`] = code;
       }
-      console.log("✅ Synced", LIVE_ROWS.length, "rows from backend.");
+      console.log(`✅ Synced ${LIVE_ROWS.length} rows from backend.`);
     } catch (e) {
       console.warn("syncProgressFromBackend failed:", e);
     }
   }
 
   // ==========================================================
-  // 5. UI LOGIC
+  // 5. UI LOGIC (Map, Selectors, Clicks)
   // ==========================================================
   function injectStyles() {
     const css = `
@@ -573,6 +534,8 @@
   // ==========================================================
   document.addEventListener("DOMContentLoaded", async function () {
     injectStyles();
+    
+    // 1. Сначала загружаем данные с бэкенда!
     await syncProgressFromBackend();
 
     const panel = document.querySelector(".panel");
@@ -677,13 +640,15 @@
       selected = null; renderSelected();
     });
 
-    // --- The Merged Save Logic ---
+    // --- SAVE LOGIC (Connected to Backend) ---
     if (applyBtn) {
       applyBtn.addEventListener("click", async () => {
         try {
+          // 1. Кто меняет статус
           const who = await pickResponsible();
           if (!who) { if (ptApplyHint) ptApplyHint.textContent = "Responsible is required."; return; }
 
+          // 2. Получаем выбранные значения
           const rackName = rackSelect.options[rackSelect.selectedIndex]?.textContent?.split("•")[0]?.trim() || rackSelect.value;
           let processName = "";
           if (rackProcessSelect && !rackProcessSelect.disabled && rackProcessSelect.value) processName = rackProcessSelect.value;
@@ -696,15 +661,17 @@
             if (ptApplyHint) ptApplyHint.textContent = "Select rack, specific process and status first."; return;
           }
 
+          // 3. Ищем запись в живых данных (LIVE_ROWS)
           const row = LIVE_ROWS.find(r =>
             String(normalizeRackBase(r)).toLowerCase() === String(rackName).toLowerCase() &&
             String(normalizeProcessName(r)).toLowerCase() === String(processName).toLowerCase()
           );
 
           if (!row || !row.rack_process_run_id) {
-            if (ptApplyHint) ptApplyHint.textContent = `Error: Row not found for ${rackName} / ${processName}`; return;
+            if (ptApplyHint) ptApplyHint.textContent = `Error: Row not found in DB for ${rackName} / ${processName}`; return;
           }
 
+          // 4. Вычисляем новый status_id
           const wantedLabel = String(statusName || "").trim().toUpperCase();
           const anyWithSameLabel = LIVE_ROWS.find(r => String(r.current_status || "").trim().toUpperCase() === wantedLabel);
           let statusId = anyWithSameLabel?.status_id ? Number(anyWithSameLabel.status_id) : null;
@@ -717,12 +684,13 @@
 
           if (!statusId) { if (ptApplyHint) ptApplyHint.textContent = "Error: Could not determine Status ID."; return; }
 
+          // 5. Отправляем на бэкенд
           if (ptApplyHint) ptApplyHint.textContent = "Saving...";
           applyBtn.disabled = true;
 
-          await apiUpdateRunStatus(Number(row.rack_process_run_id), {
+          await window.PT_API.updateRunStatus(Number(row.rack_process_run_id), {
             status_id: statusId,
-            responsible_employee_id: 999,
+            responsible_employee_id: 999, // Или можно передать имя 'who', если бэкенд поддерживает
             note: note + (note ? ` (by ${who})` : `(by ${who})`),
           });
 
