@@ -594,9 +594,14 @@ const CELL_RACKS = {
     "LU1_ROW12_SIS_T1": [
       { id:"NA29", name:"NA29", type:"SIS T1", processes: (PROCESS_BY_TYPE["SIS T1"] || []) },
     ],
+    "LU1_ROW12_SIS_NM": [
+    { id:"NA05", name:"NA28", type:"SIS NM", processes: (PROCESS_BY_TYPE["SIS NM"] || []) },
+    ],
     "LU1_ROW13_SIS_T1": [
-      { id:"NB28", name:"NB28", type:"SIS T1", processes: (PROCESS_BY_TYPE["SIS T1"] || []) },
-      { id:"NB29", name:"NB29", type:"SIS T1", processes: (PROCESS_BY_TYPE["SIS T1"] || []) },
+      { id:"NB29", name:"NB29", type:"SIS NM", processes: (PROCESS_BY_TYPE["SIS NM"] || []) },
+    ],
+    "LU1_ROW13_SIS_NM": [
+      { id:"NB28", name:"NB28", type:"SIS NM", processes: (PROCESS_BY_TYPE["SIS NM"] || []) },
     ],
     "LU2_ROW12_ROCE_T2_RAIL1": [
       { id:"NA24", name:"NA24", type:"ROCE T2", processes: (PROCESS_BY_TYPE["ROCE T2"] || []) },
@@ -614,9 +619,15 @@ const CELL_RACKS = {
       { id:"NA22", name:"NA22", type:"SIS T1", processes: (PROCESS_BY_TYPE["SIS T1"] || []) },
       { id:"NA23", name:"NA23", type:"SIS T1", processes: (PROCESS_BY_TYPE["SIS T1"] || []) },
     ],
+    "LU3_ROW12_SIS_NM": [
+    { id:"NA21", name:"NA21", type:"SIS NM", processes: (PROCESS_BY_TYPE["SIS NM"] || []) },
+    ],
     "LU3_ROW13_SIS_T1": [
       { id:"NB22", name:"NB22", type:"SIS T1", processes: (PROCESS_BY_TYPE["SIS T1"] || []) },
       { id:"NB23", name:"NB23", type:"SIS T1", processes: (PROCESS_BY_TYPE["SIS T1"] || []) },
+    ],
+    "LU3_ROW13_SIS_NM": [
+      { id:"NB21", name:"NB21", type:"SIS NM", processes: (PROCESS_BY_TYPE["SIS NM"] || []) },
     ],
     "LU4_ROW12_ROCE_T2_RAIL2": [
       { id:"NA17", name:"NA17", type:"ROCE T2", processes: (PROCESS_BY_TYPE["ROCE T2"] || []) },
@@ -652,9 +663,15 @@ const CELL_RACKS = {
       { id:"NA12", name:"NA12", type:"SIS T1", processes: (PROCESS_BY_TYPE["SIS T1"] || []) },
       { id:"NA13", name:"NA13", type:"SIS T1", processes: (PROCESS_BY_TYPE["SIS T1"] || []) },
     ],
+    "LU6_ROW12_SIS_NM": [
+      { id:"NA11", name:"NA11", type:"SIS NM", processes: (PROCESS_BY_TYPE["SIS NM"] || []) },
+    ],
     "LU6_ROW13_SIS_T1": [
       { id:"NB12", name:"NB12", type:"SIS T1", processes: (PROCESS_BY_TYPE["SIS T1"] || []) },
       { id:"NB13", name:"NB13", type:"SIS T1", processes: (PROCESS_BY_TYPE["SIS T1"] || []) },
+    ],
+    "LU6_ROW13_SIS_NM": [
+      { id:"NB11", name:"NB11", type:"SIS NM", processes: (PROCESS_BY_TYPE["SIS NM"] || []) },
     ],
     "LU7_ROW12_ROCE_T2_RAIL3": [
       { id:"NA07", name:"NA07", type:"ROCE T2", processes: (PROCESS_BY_TYPE["ROCE T2"] || []) },
@@ -671,8 +688,14 @@ const CELL_RACKS = {
     "LU8_ROW12_SIS_T1": [
       { id:"NA06", name:"NA06", type:"SIS T1", processes: (PROCESS_BY_TYPE["SIS T1"] || []) },
     ],
+    "LU8_ROW12_SIS_NM": [
+    { id:"NA05", name:"NA05", type:"SIS NM", processes: (PROCESS_BY_TYPE["SIS NM"] || []) },
+    ],
     "LU8_ROW13_SIS_T1": [
       { id:"NB06", name:"NB06", type:"SIS T1", processes: (PROCESS_BY_TYPE["SIS T1"] || []) },
+    ],
+    "LU8_ROW13_SIS_NM": [
+    { id:"NB05", name:"NB05", type:"SIS NM", processes: (PROCESS_BY_TYPE["SIS NM"] || []) },
     ],
     "LU9_ROW12_ROCE_T2_RAIL4": [
       { id:"NA01", name:"NA01", type:"ROCE T2", processes: (PROCESS_BY_TYPE["ROCE T2"] || []) },
