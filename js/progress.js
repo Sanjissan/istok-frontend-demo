@@ -2304,7 +2304,7 @@ await window.PT_API.updateRunStatus({
     renderSelected();
     (async () => {
     await syncProgressFromBackend(); // <-- подтянуть статусы из RDS
-    setView(currentView);
+    setView(viewMode);
     renderAll();
   })();
   });
