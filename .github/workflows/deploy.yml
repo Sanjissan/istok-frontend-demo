@@ -2,9 +2,8 @@ name: Deploy Frontend
 
 on:
   push:
-    branches: [ "main" ]
-    paths:
-      - "frontend/**"
+    branches: ["main"]
+  workflow_dispatch: {}
 
 permissions:
   id-token: write
@@ -14,24 +13,39 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
 
+    env:
+      AWS_REGION: us-east-1
+      S3_BUCKET: database-istok1-dev-frontend
+      CF_DISTRIBUTION_ID: E2GHV05QFRZUK8
+      ROLE_TO_ASSUME: arn:aws:iam::341823313809:role/database-istok1-dev-github-actions-frontend
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Configure AWS credentials
+      # Очень полезно, чтобы навсегда понять "кто я" в OIDC
+      - name: Debug GitHub context
+        run: |
+          echo "GITHUB_REPOSITORY=$GITHUB_REPOSITORY"
+          echo "GITHUB_REF=$GITHUB_REF"
+          echo "GITHUB_SHA=$GITHUB_SHA"
+          echo "GITHUB_ACTOR=$GITHUB_ACTOR"
+
+      - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::341823313809:role/database-istok1-dev-github-actions-frontend
-          aws-region: us-east-1
+          role-to-assume: ${{ env.ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
 
-      - name: Upload frontend to S3
+      - name: Upload site to S3
         run: |
-          aws s3 sync frontend/ s3://database-istok1-dev-frontend \
+          aws s3 sync . "s3://${S3_BUCKET}" \
             --delete \
+            --exclude ".git/*" \
             --exclude ".github/*"
 
       - name: Invalidate CloudFront
         run: |
           aws cloudfront create-invalidation \
-            --distribution-id E2GHV05QFRZUK8 \
+            --distribution-id "${CF_DISTRIBUTION_ID}" \
             --paths "/*"
