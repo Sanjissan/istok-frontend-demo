@@ -1,79 +1,69 @@
-// frontend/js/progress.js
-// Works with:
-// - GET  /api/runs                     -> returns rows from v_rack_process_status
-// - POST /api/runs/status              -> { rack_process_run_id, status_id, responsible_employee_id?, note? }
-//
-// Requires HTML elements (ids):
-// ptProcessChips, problemsOnly, qcOnly, ptNote, ptApplyStatus,
-// ptRespModal, ptRespSelect, ptRespOk, ptRespCancel,
-// ptPanelTitle, ptPanelSub, ptClearSel, ptRack, ptRackHint, ptStatus, ptStatusHint, ptApplyHint,
-// zoomIn, zoomOut, zoomReset, zoomPct, matrixZoom, mapScroll, ptSearch, ptSideSearch
-
 (function () {
-  "use strict";
+  const T_A_1_7 = {
+    1: "NOT STARTED",
+    2: "DRESSING IN PROGRESS",
+    3: "DRESSING DONE",
+    4: "PATCHING IN PROGRESS",
+    5: "PATCHING DONE",
+    6: "QC DONE",
+    7: "BLOCKED",
+  };
+
+  const T_B_1_5 = {
+    1: "NOT STARTED",
+    2: "IN PROGRESS",
+    3: "DONE",
+    4: "QC DONE",
+    5: "BLOCKED",
+  };
+
+  const PROCESS_TEMPLATES = {
+    // long names from DB (process_name)
+    "ROCE T1: AS-T1/R.T1-T2": T_A_1_7,
+    "ROCE T2: R.T1-T2": T_A_1_7,
+    "R.T2-T3": T_A_1_7,
+    "SIS T1: AS-T1": T_A_1_7,
+    "SIS T1-T2": T_A_1_7,
+
+    "SU-MS IPMI": T_B_1_5,
+    "IPMI JUMPERS LC-LC": T_B_1_5,
+    "MS-MC T1 144F": T_B_1_5,
+    "MS-MC NA15/NB15": T_B_1_5,
+    "MC-MF NM09-NL09": T_B_1_5,
+    "GPU CAT6": T_B_1_5,
+    "IPMI CAT6": T_B_1_5,
+    "GPU AEC": T_B_1_5,
+  };
+
+  const RESPONSIBLES = ["Admin", "Tech1", "Tech2", "QC", "Manager"];
 
   // -----------------------------
-  // Small helpers
+  // API helpers (work in CloudFront)
   // -----------------------------
-  const $ = (sel) => document.querySelector(sel);
-  const $$ = (sel) => Array.from(document.querySelectorAll(sel));
+  const STORAGE_KEY = "pt_api_base_url";
 
-  function normStr(s) {
-    return String(s ?? "").trim();
+  function cleanBase(url) {
+    return String(url || "").trim().replace(/\/+$/, "");
   }
 
-  function parseSUToNumber(su) {
-    // "SU01" -> 1, "SU1" -> 1,  "1" -> 1
-    const t = normStr(su).toUpperCase();
-    const m = t.match(/(\d+)/);
-    return m ? Number(m[1]) : null;
+  function resolveBase() {
+    // If empty -> use relative URLs (best for CloudFront with /api/* behavior)
+    const cfg = window.APP_CONFIG && window.APP_CONFIG.API_BASE_URL;
+    if (cfg !== undefined && cfg !== null) return cleanBase(cfg);
+    const fromStorage = localStorage.getItem(STORAGE_KEY);
+    if (fromStorage) return cleanBase(fromStorage);
+    return ""; // default relative
   }
 
-  function safeUpper(s) {
-    return normStr(s).toUpperCase();
-  }
+  async function fetchJSON(pathOrUrl, opts = {}) {
+    const base = resolveBase();
+    const url = /^https?:\/\//i.test(pathOrUrl)
+      ? pathOrUrl
+      : base
+      ? `${base}${pathOrUrl}`
+      : pathOrUrl;
 
-  function statusBucket(statusName) {
-    const s = safeUpper(statusName);
-
-    // tweak mapping for your real statuses
-    if (s.includes("NOT START")) return "not_started";
-    if (s.includes("QC DONE") || s.includes("QC") || s.includes("QUALITY")) return "qc_done";
-    if (s.includes("IN PROGRESS") || s.includes("START") || s.includes("PATCH")) return "in_progress";
-    if (s === "DONE" || (s.includes("DONE") && !s.includes("NOT"))) return "done";
-
-    // fallback
-    return "unknown";
-  }
-
-  function isProblemRow(row) {
-    const s = safeUpper(row.current_status);
-    const run = safeUpper(row.run_state);
-    return (
-      s.includes("BLOCK") ||
-      s.includes("HOLD") ||
-      s.includes("FAIL") ||
-      s.includes("ERROR") ||
-      run.includes("BLOCK")
-    );
-  }
-
-  function looksLikeQC(row) {
-    const s = safeUpper(row.current_status);
-    return s.includes("QC");
-  }
-
-  // -----------------------------
-  // API wrapper
-  // -----------------------------
-  async function fetchJSON(path, opts = {}) {
-    // If you use api.js which exposes window.PT_API.fetchJSON, use it.
-    if (window.PT_API && typeof window.PT_API.fetchJSON === "function") {
-      return window.PT_API.fetchJSON(path, opts);
-    }
-
-    // Fallback: relative fetch (CloudFront + /api/* behavior)
-    const res = await fetch(path, {
+    const res = await fetch(url, {
       ...opts,
       headers: {
         "Content-Type": "application/json",
@@ -88,570 +78,458 @@
     } catch {
       body = text;
     }
+
     if (!res.ok) {
-      throw new Error(`API error ${res.status}: ${typeof body === "string" ? body : JSON.stringify(body)}`);
+      throw new Error(
+        `API error ${res.status}: ${
+          typeof body === "string" ? body : JSON.stringify(body)
+        }`
+      );
     }
     return body;
   }
 
-  async function apiGetRuns(limit = 1000) {
-    // You created: GET /api/runs?limit=...
-    return fetchJSON(`/api/runs?limit=${encodeURIComponent(limit)}`);
+  async function apiGetRackProcessStatus() {
+    // prefer PT_API if it exists (backward compatible), otherwise call directly
+    if (window.PT_API && typeof window.PT_API.getRackProcessStatus === "function") {
+      return window.PT_API.getRackProcessStatus();
+    }
+    return fetchJSON("/api/views/v_rack_process_status");
   }
 
-  async function apiUpdateStatus({ rack_process_run_id, status_id, responsible_employee_id, note }) {
-    return fetchJSON(`/api/runs/status`, {
+  async function apiUpdateRunStatus(
+    rack_process_run_id,
+    { status_id, responsible_employee_id, note } = {}
+  ) {
+    return fetchJSON("/api/runs/status", {
       method: "POST",
-      body: JSON.stringify({ rack_process_run_id, status_id, responsible_employee_id, note }),
+      body: JSON.stringify({
+        rack_process_run_id,
+        status_id,
+        responsible_employee_id,
+        note,
+      }),
     });
   }
 
   // -----------------------------
-  // UI state
+  // Internal state
   // -----------------------------
-  const state = {
-    runs: [],
-    selectedProcessId: null,
-    selectedProcessName: "",
-    problemsOnly: false,
-    qcOnly: false,
+  // This keeps the UI "code" (1..7 etc) for each rack+process in memory
+  // key: `${rackName}|${processName}` => code
+  const PROGRESS = new Map();
 
-    // selection
-    selectedSU: null,                 // number (1..96)
-    selectedRackProcessRunId: null,   // from API
-    selectedStatusId: null,           // chosen from dropdown
-  };
+  // cache of backend rows (view)
+  let LIVE_ROWS = [];
 
   // -----------------------------
-  // DOM refs (may be null if HTML differs)
+  // Utility helpers
   // -----------------------------
-  const els = {
-    processChips: $("#ptProcessChips"),
-    problemsOnly: $("#problemsOnly"),
-    qcOnly: $("#qcOnly"),
+  function statusToCode(template, label) {
+    if (!template) return 1;
+    const x = String(label || "").trim().toUpperCase();
 
-    ptPanelTitle: $("#ptPanelTitle"),
-    ptPanelSub: $("#ptPanelSub"),
+    for (const [k, v] of Object.entries(template)) {
+      if (String(v).trim().toUpperCase() === x) return Number(k);
+    }
 
-    ptClearSel: $("#ptClearSel"),
-    ptRack: $("#ptRack"),
-    ptRackHint: $("#ptRackHint"),
-    ptStatus: $("#ptStatus"),
-    ptStatusHint: $("#ptStatusHint"),
-    ptNote: $("#ptNote"),
-    ptApplyStatus: $("#ptApplyStatus"),
-    ptApplyHint: $("#ptApplyHint"),
+    // fallback
+    if (x.includes("NOT START")) return 1;
+    if (x.includes("QC DONE") || x === "DONE") return 6;
+    if (x.includes("BLOCK")) return 7;
 
-    // Responsible modal
-    respModal: $("#ptRespModal"),
-    respSelect: $("#ptRespSelect"),
-    respOk: $("#ptRespOk"),
-    respCancel: $("#ptRespCancel"),
-
-    // Search
-    ptSearch: $("#ptSearch"),
-    ptSideSearch: $("#ptSideSearch"),
-  };
-
-  // -----------------------------
-  // Styling for SU nodes
-  // (You can map to your CSS classes if you already have them)
-  // -----------------------------
-  function clearAllSUClasses() {
-    $$(".su").forEach((node) => {
-      node.classList.remove(
-        "pt-ns", "pt-ip", "pt-qc", "pt-done", "pt-unk",
-        "pt-problem", "pt-selected"
-      );
-      node.removeAttribute("title");
-    });
+    return 1;
   }
 
-  function applySUClass(node, bucket) {
-    // If your CSS already has these classes -> great.
-    // If not, add them in style.css later.
-    if (bucket === "not_started") node.classList.add("pt-ns");
-    else if (bucket === "in_progress") node.classList.add("pt-ip");
-    else if (bucket === "qc_done") node.classList.add("pt-qc");
-    else if (bucket === "done") node.classList.add("pt-done");
-    else node.classList.add("pt-unk");
-  }
+  function normalizeStatusCodeFromLabel(labelUpper) {
+    const label = String(labelUpper || "").trim().toUpperCase();
+    if (!label) return null;
 
-  // -----------------------------
-  // Render processes as chips
-  // -----------------------------
-  function buildProcessList() {
-    const m = new Map(); // process_id -> name
-    for (const r of state.runs) {
-      if (r.process_id != null) {
-        m.set(Number(r.process_id), normStr(r.process_name || `Process ${r.process_id}`));
+    // try to find label in any known template
+    for (const tpl of Object.values(PROCESS_TEMPLATES)) {
+      for (let i = 1; i <= 7; i++) {
+        const v = (tpl?.[i] || "").toString().trim().toUpperCase();
+        if (v && v === label) return i;
       }
     }
-    const list = Array.from(m.entries())
-      .map(([id, name]) => ({ id, name }))
-      .sort((a, b) => a.id - b.id);
 
-    return list;
+    // small fallback (if label is free-form)
+    if (label.includes("NOT START")) return 1;
+    if (label.includes("QC DONE") || label === "DONE") return 6;
+    if (label.includes("BLOCK")) return 7;
+
+    return null;
   }
 
-  function renderProcessChips() {
-    if (!els.processChips) return;
+  function keyOf(rackName, processName) {
+    return `${String(rackName).trim()}|${String(processName).trim()}`;
+  }
 
-    const list = buildProcessList();
-    els.processChips.innerHTML = "";
+  function getSelectedText(selectEl) {
+    if (!selectEl) return "";
+    const opt = selectEl.options?.[selectEl.selectedIndex];
+    return (opt?.textContent || "").trim();
+  }
 
-    list.forEach((p) => {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "chip" + (p.id === state.selectedProcessId ? " active" : "");
-      btn.textContent = p.name;
-      btn.addEventListener("click", () => {
-        state.selectedProcessId = p.id;
-        state.selectedProcessName = p.name;
-        state.selectedSU = null;
-        state.selectedRackProcessRunId = null;
-        state.selectedStatusId = null;
-        renderAll();
-      });
-      els.processChips.appendChild(btn);
-    });
+  function setVisible(el, v) {
+    if (!el) return;
+    el.hidden = !v;
+    el.style.display = v ? "" : "none";
+  }
 
-    // default pick first process if none
-    if (state.selectedProcessId == null && list.length > 0) {
-      state.selectedProcessId = list[0].id;
-      state.selectedProcessName = list[0].name;
-      renderAll();
-    }
+  function safeEl(id) {
+    return document.getElementById(id);
   }
 
   // -----------------------------
-  // Build "effective" runs for current filter
+  // Backend -> PROGRESS sync
   // -----------------------------
-  function getFilteredRunsForSelectedProcess() {
-    const pid = state.selectedProcessId;
-    if (!pid) return [];
+  async function syncProgressFromBackend() {
+    const rows = await apiGetRackProcessStatus();
+    LIVE_ROWS = Array.isArray(rows) ? rows : [];
 
-    let rows = state.runs.filter((r) => Number(r.process_id) === Number(pid));
+    PROGRESS.clear();
 
-    if (state.problemsOnly) {
-      rows = rows.filter(isProblemRow);
+    for (const r of LIVE_ROWS) {
+      const rackName = (r.rack_name || "").trim();
+      const processName = (r.process_name || "").trim();
+      const statusLabel = (r.current_status || "").trim();
+
+      const tpl = PROCESS_TEMPLATES[processName];
+      const code = statusToCode(tpl, statusLabel);
+
+      PROGRESS.set(keyOf(rackName, processName), code);
     }
-    if (state.qcOnly) {
-      rows = rows.filter(looksLikeQC);
-    }
+  }
 
-    // optional search (top bar)
-    const q = normStr(els.ptSearch?.value).toLowerCase();
-    if (q) {
-      rows = rows.filter((r) => {
-        const rack = normStr(r.rack_name).toLowerCase();
-        const rackId = normStr(r.rack_id).toLowerCase();
-        const su = normStr(r.SU).toLowerCase();
-        const lu = normStr(r.LU).toLowerCase();
-        return rack.includes(q) || rackId.includes(q) || su.includes(q) || lu.includes(q);
-      });
+  async function getLiveRowsSafe() {
+    if (!Array.isArray(LIVE_ROWS) || LIVE_ROWS.length === 0) {
+      await syncProgressFromBackend();
     }
-
-    return rows;
+    return LIVE_ROWS;
   }
 
   // -----------------------------
-  // Paint the matrix (SU elements)
+  // UI rendering logic
   // -----------------------------
+  function applyStatusClasses(el, code) {
+    // you can tune classes to match your CSS
+    el.classList.remove(
+      "st-1",
+      "st-2",
+      "st-3",
+      "st-4",
+      "st-5",
+      "st-6",
+      "st-7"
+    );
+    el.classList.add(`st-${code || 1}`);
+  }
+
   function renderMatrix() {
-    clearAllSUClasses();
+    // This file assumes your HTML already contains the matrix
+    // We only paint statuses onto `.su` elements based on their text (rack name)
+    const suNodes = document.querySelectorAll(".su");
+    if (!suNodes?.length) return;
 
-    const rows = getFilteredRunsForSelectedProcess();
-    const bySU = new Map(); // suNumber -> representative row
+    // Example: on process view, we color each rack by selected process
+    const procSel = safeEl("ptProcess");
+    const currentProcess = getSelectedText(procSel);
 
-    // If multiple rows per SU (unlikely), pick the "most important":
-    // - problems win
-    // - else latest status (not possible without timestamp), so just keep first
-    for (const r of rows) {
-      const suNum = parseSUToNumber(r.SU);
-      if (!suNum) continue;
+    for (const node of suNodes) {
+      const rackName = (node.textContent || "").trim();
+      if (!rackName) continue;
 
-      const prev = bySU.get(suNum);
-      if (!prev) {
-        bySU.set(suNum, r);
-      } else {
-        // keep problem if any
-        if (!isProblemRow(prev) && isProblemRow(r)) bySU.set(suNum, r);
-      }
-    }
+      // if no process selected yet, default to first template key
+      const proc =
+        currentProcess && PROCESS_TEMPLATES[currentProcess]
+          ? currentProcess
+          : Object.keys(PROCESS_TEMPLATES)[0];
 
-    // Update all su nodes with matching data-su
-    for (const node of $$(".su")) {
-      const key = node.getAttribute("data-su");
-      if (!key) continue;
-
-      // Many nodes have data-su like "96" etc. Some have string keys (LU1_ROW13_SIS_T1)
-      // We only paint numeric SUs.
-      const n = Number(key);
-      if (!Number.isFinite(n)) continue;
-
-      const row = bySU.get(n);
-      if (!row) continue;
-
-      const bucket = statusBucket(row.current_status);
-      applySUClass(node, bucket);
-
-      if (isProblemRow(row)) node.classList.add("pt-problem");
-
-      // tooltip
-      const tip = [
-        `${row.rack_name || row.rack_id || ""}`.trim(),
-        `SU: ${row.SU || n}`,
-        `Process: ${row.process_name || state.selectedProcessName}`,
-        `Status: ${row.current_status || "—"}`,
-      ].filter(Boolean).join("\n");
-      node.title = tip;
-
-      // selection marker
-      if (state.selectedSU && n === state.selectedSU) {
-        node.classList.add("pt-selected");
-      }
+      const code = PROGRESS.get(keyOf(rackName, proc)) || 1;
+      applyStatusClasses(node, code);
     }
   }
 
-  // -----------------------------
-  // Sidebar: selection + status dropdown
-  // -----------------------------
-  function renderSidebar() {
-    const rows = getFilteredRunsForSelectedProcess();
+  function fillProcessDropdown() {
+    const procSel = safeEl("ptProcess");
+    const chips = safeEl("ptProcessChips");
+    if (!procSel) return;
 
-    // Panel title
-    if (els.ptPanelTitle) {
-      els.ptPanelTitle.textContent = state.selectedProcessName ? state.selectedProcessName : "—";
-    }
+    const names = Object.keys(PROCESS_TEMPLATES);
 
-    // Clear selection
-    if (els.ptClearSel) {
-      els.ptClearSel.onclick = () => {
-        state.selectedSU = null;
-        state.selectedRackProcessRunId = null;
-        state.selectedStatusId = null;
-        renderAll();
-      };
-    }
-
-    // Rack dropdown: racks within selected SU for selected process
-    if (els.ptRack) {
-      els.ptRack.innerHTML = "";
-      els.ptRack.disabled = true;
-
-      if (state.selectedSU != null) {
-        const suRows = rows.filter((r) => parseSUToNumber(r.SU) === state.selectedSU);
-        const options = suRows
-          .map((r) => ({
-            id: r.rack_process_run_id,
-            label: `${r.rack_id || r.rack_name || "Rack"} (${r.current_status || "—"})`,
-            row: r,
-          }))
-          .filter((x) => x.id != null);
-
-        if (options.length > 0) {
-          els.ptRack.disabled = false;
-
-          const opt0 = document.createElement("option");
-          opt0.value = "";
-          opt0.textContent = "Select rack...";
-          els.ptRack.appendChild(opt0);
-
-          options.forEach((o) => {
-            const opt = document.createElement("option");
-            opt.value = String(o.id);
-            opt.textContent = o.label;
-            els.ptRack.appendChild(opt);
-          });
-
-          // keep selection if exists
-          if (state.selectedRackProcessRunId) {
-            els.ptRack.value = String(state.selectedRackProcessRunId);
-          }
-
-          els.ptRack.onchange = () => {
-            const v = els.ptRack.value;
-            state.selectedRackProcessRunId = v ? Number(v) : null;
-            state.selectedStatusId = null;
-            renderAll();
-          };
-
-          els.ptRackHint && (els.ptRackHint.textContent = `Racks in SU${String(state.selectedSU).padStart(2, "0")}: ${options.length}`);
-        } else {
-          els.ptRackHint && (els.ptRackHint.textContent = "No racks found for this SU/process.");
-        }
-      } else {
-        els.ptRackHint && (els.ptRackHint.textContent = "Click a SU on the map to select.");
-      }
-    }
-
-    // Status dropdown:
-    // We build possible statuses from runs list (distinct status_id + current_status)
-    if (els.ptStatus) {
-      els.ptStatus.innerHTML = "";
-      els.ptStatus.disabled = true;
-
-      const statusMap = new Map(); // status_id -> name
-      for (const r of state.runs) {
-        if (r.status_id != null && r.current_status) {
-          statusMap.set(Number(r.status_id), normStr(r.current_status));
-        }
-      }
-      const statuses = Array.from(statusMap.entries())
-        .map(([id, name]) => ({ id, name }))
-        .sort((a, b) => a.name.localeCompare(b.name));
-
-      if (state.selectedRackProcessRunId && statuses.length > 0) {
-        els.ptStatus.disabled = false;
-
-        const opt0 = document.createElement("option");
-        opt0.value = "";
-        opt0.textContent = "Select status...";
-        els.ptStatus.appendChild(opt0);
-
-        statuses.forEach((s) => {
-          const opt = document.createElement("option");
-          opt.value = String(s.id);
-          opt.textContent = s.name;
-          els.ptStatus.appendChild(opt);
-        });
-
-        if (state.selectedStatusId) {
-          els.ptStatus.value = String(state.selectedStatusId);
-        }
-
-        els.ptStatus.onchange = () => {
-          const v = els.ptStatus.value;
-          state.selectedStatusId = v ? Number(v) : null;
-          renderApplyButtonState();
-        };
-
-        els.ptStatusHint && (els.ptStatusHint.textContent = "");
-      } else {
-        els.ptStatusHint && (els.ptStatusHint.textContent = state.selectedRackProcessRunId ? "No statuses found." : "Select a rack first.");
-      }
-    }
-
-    renderApplyButtonState();
-  }
-
-  function renderApplyButtonState() {
-    if (!els.ptApplyStatus) return;
-
-    const can =
-      state.selectedRackProcessRunId != null &&
-      state.selectedStatusId != null;
-
-    els.ptApplyStatus.disabled = !can;
-
-    if (els.ptApplyHint) {
-      els.ptApplyHint.textContent = can ? "" : "Select rack + status to enable Update Status.";
-    }
-  }
-
-  // -----------------------------
-  // Responsible modal
-  // -----------------------------
-  const RESPONSIBLES = [
-    // You can replace with your real employees list later.
-    // For demo we use a fixed list.
-    { id: 999, name: "Admin (demo)" },
-    { id: 101, name: "Operator A" },
-    { id: 102, name: "Operator B" },
-  ];
-
-  function ensureResponsibleOptions() {
-    if (!els.respSelect) return;
-    if (els.respSelect.options.length > 0) return;
-
-    RESPONSIBLES.forEach((r) => {
+    procSel.innerHTML = "";
+    for (const name of names) {
       const opt = document.createElement("option");
-      opt.value = String(r.id);
-      opt.textContent = r.name;
-      els.respSelect.appendChild(opt);
-    });
-  }
+      opt.value = name;
+      opt.textContent = name;
+      procSel.appendChild(opt);
+    }
 
-  function openResponsibleModal() {
-    return new Promise((resolve) => {
-      ensureResponsibleOptions();
+    // chips (optional)
+    if (chips) {
+      chips.innerHTML = "";
+      const all = document.createElement("button");
+      all.type = "button";
+      all.className = "chip";
+      all.textContent = "All";
+      all.dataset.process = "";
+      chips.appendChild(all);
 
-      const modal = els.respModal;
-      const sel = els.respSelect;
-      const ok = els.respOk;
-      const cancel = els.respCancel;
-
-      // fallback: prompt if modal not present
-      if (!modal || !sel || !ok || !cancel) {
-        const who = window.prompt("Responsible employee id (e.g. 999):", "999");
-        resolve(who ? Number(who) : 999);
-        return;
+      for (const name of names) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "chip";
+        b.textContent = name;
+        b.dataset.process = name;
+        chips.appendChild(b);
       }
 
-      modal.classList.add("open"); // your CSS may use .open; if not, it still works (just hidden)
-      modal.style.display = "block";
+      chips.addEventListener("click", (e) => {
+        const btn = e.target?.closest?.("button");
+        if (!btn) return;
+        const p = btn.dataset.process || "";
+        if (p) procSel.value = p;
+        renderMatrix();
+      });
+    }
+  }
+
+  function fillRackDropdown(rows) {
+    const rackSel = safeEl("ptRack");
+    if (!rackSel) return;
+
+    const unique = new Set();
+    for (const r of rows) unique.add(String(r.rack_name || "").trim());
+    const list = Array.from(unique).sort((a, b) => a.localeCompare(b));
+
+    rackSel.innerHTML = "";
+    for (const name of list) {
+      const opt = document.createElement("option");
+      opt.value = name;
+      opt.textContent = name;
+      rackSel.appendChild(opt);
+    }
+  }
+
+  function fillRackProcessDropdown(rows) {
+    const procSel = safeEl("ptRackProcess");
+    if (!procSel) return;
+
+    const unique = new Set();
+    for (const r of rows) unique.add(String(r.process_name || "").trim());
+    const list = Array.from(unique).sort((a, b) => a.localeCompare(b));
+
+    procSel.innerHTML = "";
+    for (const name of list) {
+      const opt = document.createElement("option");
+      opt.value = name;
+      opt.textContent = name;
+      procSel.appendChild(opt);
+    }
+  }
+
+  function fillStatusDropdown(processName) {
+    const statusSel = safeEl("ptStatus");
+    if (!statusSel) return;
+
+    const tpl = PROCESS_TEMPLATES[processName];
+    statusSel.innerHTML = "";
+
+    if (!tpl) {
+      const opt = document.createElement("option");
+      opt.value = "NOT STARTED";
+      opt.textContent = "NOT STARTED";
+      statusSel.appendChild(opt);
+      return;
+    }
+
+    const max = Object.keys(tpl).length;
+    for (let i = 1; i <= max; i++) {
+      const label = tpl[i];
+      if (!label) continue;
+      const opt = document.createElement("option");
+      opt.value = label;
+      opt.textContent = label;
+      statusSel.appendChild(opt);
+    }
+  }
+
+  // -----------------------------
+  // Responsible modal/prompt
+  // -----------------------------
+  function pickResponsible() {
+    const modal = safeEl("ptRespModal");
+    const sel = safeEl("ptRespSelect");
+    const ok = safeEl("ptRespOk");
+    const cancel = safeEl("ptRespCancel");
+
+    if (!modal || !sel || !ok || !cancel) {
+      const who = window.prompt(
+        "Who is responsible for this status change?\n" + RESPONSIBLES.join("\n"),
+        "Admin"
+      );
+      return Promise.resolve((who || "").trim() || null);
+    }
+
+    sel.innerHTML = "";
+    for (const r of RESPONSIBLES) {
+      const o = document.createElement("option");
+      o.value = r;
+      o.textContent = r;
+      sel.appendChild(o);
+    }
+
+    return new Promise((resolve) => {
+      modal.classList.add("open");
 
       const cleanup = () => {
         modal.classList.remove("open");
-        modal.style.display = "none";
         ok.onclick = null;
         cancel.onclick = null;
+      };
+
+      ok.onclick = () => {
+        const who = (sel.value || "").trim();
+        cleanup();
+        resolve(who || null);
       };
 
       cancel.onclick = () => {
         cleanup();
         resolve(null);
       };
-
-      ok.onclick = () => {
-        const v = Number(sel.value || 999);
-        cleanup();
-        resolve(v);
-      };
     });
   }
 
   // -----------------------------
-  // Update status action
-  // -----------------------------
-  async function onApplyStatus() {
-    if (!state.selectedRackProcessRunId || !state.selectedStatusId) return;
-
-    try {
-      els.ptApplyStatus && (els.ptApplyStatus.disabled = true);
-      els.ptApplyHint && (els.ptApplyHint.textContent = "Updating...");
-
-      const employeeId = await openResponsibleModal();
-      if (employeeId == null) {
-        els.ptApplyHint && (els.ptApplyHint.textContent = "Cancelled.");
-        renderApplyButtonState();
-        return;
-      }
-
-      const note = normStr(els.ptNote?.value);
-
-      await apiUpdateStatus({
-        rack_process_run_id: state.selectedRackProcessRunId,
-        status_id: state.selectedStatusId,
-        responsible_employee_id: employeeId,
-        note,
-      });
-
-      els.ptApplyHint && (els.ptApplyHint.textContent = "✅ Updated. Reloading...");
-      await reloadRunsAndRender();
-
-      // optional: clear note after success
-      if (els.ptNote) els.ptNote.value = "";
-
-      els.ptApplyHint && (els.ptApplyHint.textContent = "✅ Done.");
-    } catch (e) {
-      console.error(e);
-      els.ptApplyHint && (els.ptApplyHint.textContent = `❌ ${e.message}`);
-      renderApplyButtonState();
-    }
-  }
-
-  // -----------------------------
-  // Click handling on SU nodes
-  // -----------------------------
-  function bindSUClicksOnce() {
-    // Many spans exist; bind once.
-    // We use event delegation on document.
-    document.addEventListener("click", (ev) => {
-      const t = ev.target;
-      if (!(t instanceof Element)) return;
-
-      const su = t.closest(".su");
-      if (!su) return;
-
-      const key = su.getAttribute("data-su");
-      const n = Number(key);
-      if (!Number.isFinite(n)) return;
-
-      state.selectedSU = n;
-      state.selectedRackProcessRunId = null;
-      state.selectedStatusId = null;
-      renderAll();
-    });
-  }
-
-  // -----------------------------
-  // Zoom (optional, safe)
-  // -----------------------------
-  let zoomPct = 100;
-
-  function setZoom(pct) {
-    zoomPct = Math.max(50, Math.min(200, pct));
-    const z = $("#matrixZoom");
-    if (z) z.style.transform = `scale(${zoomPct / 100})`;
-    const label = $("#zoomPct");
-    if (label) label.textContent = `${zoomPct}%`;
-  }
-
-  function bindZoom() {
-    const zin = $("#zoomIn");
-    const zout = $("#zoomOut");
-    const zreset = $("#zoomReset");
-
-    zin && zin.addEventListener("click", () => setZoom(zoomPct + 10));
-    zout && zout.addEventListener("click", () => setZoom(zoomPct - 10));
-    zreset && zreset.addEventListener("click", () => setZoom(100));
-  }
-
-  // -----------------------------
-  // Reload / Render pipeline
-  // -----------------------------
-  async function reloadRunsAndRender() {
-    const data = await apiGetRuns(1000);
-    state.runs = Array.isArray(data) ? data : [];
-    renderAll();
-  }
-
-  function renderAll() {
-    // toggles
-    state.problemsOnly = !!els.problemsOnly?.checked;
-    state.qcOnly = !!els.qcOnly?.checked;
-
-    renderProcessChips();
-    renderMatrix();
-    renderSidebar();
-
-    // apply button
-    if (els.ptApplyStatus) {
-      els.ptApplyStatus.onclick = onApplyStatus;
-    }
-  }
-
-  // -----------------------------
-  // Init
+  // Main init
   // -----------------------------
   async function init() {
-    // bind toggles
-    els.problemsOnly && els.problemsOnly.addEventListener("change", renderAll);
-    els.qcOnly && els.qcOnly.addEventListener("change", renderAll);
+    // 1) sync backend state
+    await syncProgressFromBackend();
 
-    // search re-render
-    els.ptSearch && els.ptSearch.addEventListener("input", () => renderAll());
+    // 2) setup dropdowns & render
+    fillProcessDropdown();
+    const rows = await getLiveRowsSafe();
+    fillRackDropdown(rows);
+    fillRackProcessDropdown(rows);
 
-    bindSUClicksOnce();
-    bindZoom();
-    setZoom(100);
+    const procSel = safeEl("ptRackProcess");
+    const statusSel = safeEl("ptStatus");
+    if (procSel) {
+      fillStatusDropdown(getSelectedText(procSel));
+      procSel.addEventListener("change", () => {
+        fillStatusDropdown(getSelectedText(procSel));
+      });
+    }
 
-    // first load
-    try {
-      await reloadRunsAndRender();
-    } catch (e) {
-      console.error(e);
-      // If UI has a place to show error, do it:
-      if (els.ptApplyHint) els.ptApplyHint.textContent = `❌ Failed to load runs: ${e.message}`;
+    renderMatrix();
+
+    // 3) Apply Status button -> SAVE TO DB
+    const applyBtn = safeEl("ptApplyStatus");
+    const rackSel = safeEl("ptRack");
+    const noteEl = safeEl("ptNote");
+    const ptApplyHint = safeEl("ptApplyHint");
+
+    if (applyBtn && rackSel && procSel && statusSel && ptApplyHint) {
+      applyBtn.disabled = false;
+      rackSel.disabled = false;
+      procSel.disabled = false;
+      statusSel.disabled = false;
+      if (noteEl) noteEl.disabled = false;
+
+      applyBtn.addEventListener("click", async () => {
+        try {
+          // 1) who is responsible
+          const who = await pickResponsible();
+          if (!who) {
+            ptApplyHint.textContent = "Responsible is required.";
+            return;
+          }
+
+          // 2) selected values from UI
+          const rackName = getSelectedText(rackSel); // e.g. "LAC"
+          const processName = getSelectedText(procSel); // e.g. "ROCE T1: AS-T1/R.T1-T2"
+          const statusName = getSelectedText(statusSel); // e.g. "PATCHING DONE"
+          const note = (noteEl?.value || "").trim();
+
+          if (!rackName || !processName || !statusName) {
+            ptApplyHint.textContent = "Select rack, process and status first.";
+            return;
+          }
+
+          // 3) map to DB row (run id + status_id)
+          const rows = await getLiveRowsSafe();
+
+          const row = rows.find(
+            (r) =>
+              String(r.rack_name).trim() === rackName &&
+              String(r.process_name).trim() === processName
+          );
+
+          if (!row || !row.rack_process_run_id) {
+            ptApplyHint.textContent = `Can't map selection to DB row. rack="${rackName}", process="${processName}"`;
+            return;
+          }
+
+          // 4) determine status_id:
+          //    - If DB already contains this status name somewhere, use that id.
+          //    - Else: infer base from current process (e.g. 105 -> base 100) and add our internal code.
+          const wantedLabel = String(statusName || "").trim().toUpperCase();
+
+          const anyWithSameLabel = rows.find(
+            (r) =>
+              String(r.current_status || "").trim().toUpperCase() === wantedLabel
+          );
+          let statusId = anyWithSameLabel?.status_id
+            ? Number(anyWithSameLabel.status_id)
+            : null;
+
+          if (!statusId) {
+            // infer base from this process, e.g. 105 -> 100
+            const sample = rows.find(
+              (r) =>
+                String(r.process_name).trim() === processName && r.status_id
+            );
+            const base = sample?.status_id
+              ? Math.floor(Number(sample.status_id) / 100) * 100
+              : 0;
+
+            // translate label -> internal numeric code (1..7) using the same templates
+            const code = normalizeStatusCodeFromLabel(wantedLabel);
+            if (!base || !code) {
+              ptApplyHint.textContent = `Can't map status to status_id. status="${statusName}" (base=${base}, code=${code})`;
+              return;
+            }
+
+            // Special case: BLOCKED often uses 199 / 299 etc. If your DB uses something else, change here.
+            statusId = wantedLabel.includes("BLOCK") ? base + 99 : base + code;
+          }
+
+          ptApplyHint.textContent = "Saving...";
+          applyBtn.disabled = true;
+
+          // NOTE: no employee-id mapping yet, so send 999 (your backend default) unless you change it.
+          await apiUpdateRunStatus(Number(row.rack_process_run_id), {
+            status_id: statusId,
+            responsible_employee_id: 999,
+            note,
+          });
+
+          ptApplyHint.textContent = "Saved ✅ Refreshing...";
+          setTimeout(() => window.location.reload(), 300);
+        } catch (e) {
+          console.error(e);
+          ptApplyHint.textContent = `Error: ${e.message || e}`;
+        } finally {
+          applyBtn.disabled = false;
+        }
+      });
     }
   }
 
-  // run
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", init);
-  } else {
-    init();
-  }
+  document.addEventListener("DOMContentLoaded", () => {
+    init().catch((e) => console.error("init failed:", e));
+  });
 })();
