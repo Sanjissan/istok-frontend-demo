@@ -1,53 +1,61 @@
-// js/progress.js
+// js/progress_combined.js
 (function () {
-  function qs(id) { return document.getElementById(id); }
-
-  async function init() {
-    try {
-      const { fetchJSON } = window.PT_API;
-
-      // грузим racks
-      const racks = await fetchJSON("/api/racks");
-
-      // покажем что всё ок (в правой панели и в заголовке карты)
-      const panelTitle = qs("ptPanelTitle");
-      const mapTitle = document.querySelector(".map-title");
-
-      if (panelTitle) panelTitle.textContent = `Loaded ${racks.length} racks`;
-      if (mapTitle) mapTitle.textContent = `DH12 • ${racks.length} racks`;
-
-      // заполним dropdown Rack (внутри selected SU)
-      const rackSelect = qs("ptRack");
-      if (rackSelect) {
-        rackSelect.innerHTML = "";
-        const opt0 = document.createElement("option");
-        opt0.value = "";
-        opt0.textContent = "Select rack…";
-        rackSelect.appendChild(opt0);
-
-        for (const r of racks) {
-          const opt = document.createElement("option");
-          opt.value = r.id;
-          opt.textContent = `${r.id} (${r.LU || ""} ${r.SU || ""})`;
-          rackSelect.appendChild(opt);
-        }
-      }
-
-      // (позже сюда подключим реальные статусы/процессы)
-      console.log("✅ racks loaded", racks.slice(0, 3));
-    } catch (err) {
-      console.error(err);
-      // мягко покажем ошибку в UI
-      const panelTitle = qs("ptPanelTitle");
-      const panelSub = qs("ptPanelSub");
-      if (panelTitle) panelTitle.textContent = "Error loading data";
-      if (panelSub) panelSub.textContent = err.message;
-    }
+  // ==========================================================
+  // 1. API & CONFIG (Back-end Logic)
+  //    - Works with window.PT_API if it's injected
+  //    - Or via plain REST using APP_CONFIG.API_BASE_URL / localStorage("pt_api_base_url")
+  // ==========================================================
+  function cleanBase(url) {
+    return String(url || "").trim().replace(/\/+$/, "");
   }
 
-  window.addEventListener("DOMContentLoaded", init);
-})();
+  function resolveBase() {
+    const cfg = window.APP_CONFIG && window.APP_CONFIG.API_BASE_URL;
+    if (cfg !== undefined && cfg !== null && String(cfg).trim() !== "") return cleanBase(cfg);
+    const fromStorage = (() => { try { return localStorage.getItem("pt_api_base_url"); } catch { return ""; } })();
+    if (fromStorage) return cleanBase(fromStorage);
+    return "";
+  }
 
+  async function fetchJSON(pathOrUrl, opts = {}) {
+    const base = resolveBase();
+    const url = /^https?:\/\//i.test(pathOrUrl)
+      ? pathOrUrl
+      : (base ? `${base}${pathOrUrl}` : pathOrUrl);
+
+    const res = await fetch(url, {
+      ...opts,
+      headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
+      credentials: opts.credentials || "include",
+    });
+
+    const text = await res.text();
+    let body;
+    try { body = text ? JSON.parse(text) : null; } catch { body = text; }
+
+    if (!res.ok) {
+      throw new Error(`API error ${res.status}: ${typeof body === "string" ? body : JSON.stringify(body)}`);
+    }
+    return body;
+  }
+
+  async function apiGetRackProcessStatus() {
+    if (window.PT_API && typeof window.PT_API.getRackProcessStatus === "function") {
+      return window.PT_API.getRackProcessStatus();
+    }
+    return fetchJSON("/api/views/v_rack_process_status");
+  }
+
+  async function apiUpdateRunStatus(rack_process_run_id, payload = {}) {
+    if (window.PT_API && typeof window.PT_API.updateRunStatus === "function") {
+      return window.PT_API.updateRunStatus(rack_process_run_id, payload);
+    }
+    return fetchJSON("/api/runs/status", {
+      method: "POST",
+      body: JSON.stringify({ rack_process_run_id, ...payload }),
+    });
+  }
+})();
 (function () {
   const T_A_1_7 = { 1:"NOT STARTED", 2:"DRESSING IN PROGRESS", 3:"DRESSING DONE", 4:"PATCHING IN PROGRESS", 5:"PATCHING DONE", 6:"QC DONE", 7:"BLOCKED" };
   const T_B_1_5 = { 1:"NOT STARTED", 2:"IN PROGRESS", 3:"DONE", 4:"QC DONE", 5:"BLOCKED" };
@@ -71,66 +79,6 @@
     "IPMI CAT6": T_IPMI_CAT6,
     "GPU AEC": T_GPU_AEC,
   };
-    function normalizeRackBase(row) {
-    // row может быть: rack_name, name, rack_id ("LAC - SU1"), и т.п.
-    let s =
-      (row && (row.rack_name || row.name || row.rack || row.rack_id || row.rackId || "")) + "";
-    s = s.trim();
-    // если пришло "LAC - SU1" -> берем "LAC"
-    if (s.includes(" - ")) s = s.split(" - ")[0].trim();
-    return s;
-  }
-
-  function normalizeProcessName(row) {
-    return ((row && (row.process_name || row.process || row.proc || "")) + "").trim();
-  }
-
-  function statusToCode(templateObj, statusLabel) {
-    const label = ((statusLabel || "") + "").trim().toLowerCase();
-    if (!label) return 1; // NOT STARTED
-
-    // templateObj: { 1:"NOT STARTED", 2:"IN PROGRESS", ... }
-    for (const [code, txt] of Object.entries(templateObj)) {
-      if ((txt + "").trim().toLowerCase() === label) return Number(code);
-    }
-
-    // если не нашли — пробуем частичное совпадение
-    for (const [code, txt] of Object.entries(templateObj)) {
-      const t = (txt + "").trim().toLowerCase();
-      if (t.includes(label) || label.includes(t)) return Number(code);
-    }
-
-    return 1;
-  }
-
-  async function syncProgressFromBackend() {
-    if (!window.PT_API || !window.PT_API.getRackProcessStatus) return;
-
-    try {
-      const rows = await window.PT_API.getRackProcessStatus();
-
-      // ожидаем строки вида:
-      // { rack_name/name/rack_id, process_name, current_status/status, ... }
-      for (const r of rows || []) {
-        const base = normalizeRackBase(r);
-        const proc = normalizeProcessName(r);
-        const statusLabel = r.current_status || r.status || r.status_name || r.state;
-
-        if (!base || !proc) continue;
-
-        const tpl = PROCESS_TEMPLATES[proc];
-        if (!tpl) continue; // если процесс из БД не совпадает по названию с ключом PROCESS_TEMPLATES
-
-        const code = statusToCode(tpl, statusLabel);
-
-        // ВАЖНО: твой “final progress.js” ищет прогресс по ключу `${base}|${proc}`
-        PROGRESS[`${base}|${proc}`] = code;
-      }
-    } catch (e) {
-      console.warn("syncProgressFromBackend failed:", e);
-    }
-  }
-
   const ALL_PROCESSES = Object.keys(PROCESS_TEMPLATES);
 
   const COMPLETION_CODE = {};
@@ -1354,23 +1302,6 @@ const CELL_RACKS = {
       "Valerii Smolentsev",
     ];
 
-// --- Backend IDs mapping (from DB seed) ---
-const STATUS_NAME_TO_ID = {"1|NOT STARTED":101,"1|DRESSING IN PROGRESS":102,"1|DRESSING DONE":103,"1|PATCHING IN PROGRESS":104,"1|PATCHING DONE":105,"1|QC DONE":106,"1|BLOCKED":107,"2|NOT STARTED":201,"2|DRESSING IN PROGRESS":202,"2|DRESSING DONE":203,"2|PATCHING IN PROGRESS":204,"2|PATCHING DONE":205,"2|QC DONE":206,"2|BLOCKED":207,"3|NOT STARTED":301,"3|IN PROGRESS":302,"3|DONE":303,"3|QC DONE":304,"3|BLOCKED":305,"4|NOT STARTED":401,"4|IN PROGRESS":402,"4|DONE":403,"4|QC DONE":404,"4|BLOCKED":405,"5|NOT STARTED":501,"5|DRESSING IN PROGRESS":502,"5|DRESSING DONE":503,"5|PATCHING IN PROGRESS":504,"5|PATCHING DONE":505,"5|QC DONE":506,"5|BLOCKED":507,"6|NOT STARTED":601,"6|DRESSING IN PROGRESS":602,"6|DRESSING DONE":603,"6|PATCHING IN PROGRESS":604,"6|PATCHING DONE":605,"6|QC DONE":606,"6|BLOCKED":607,"7|NOT STARTED":701,"7|DRESSING IN PROGRESS":702,"7|DRESSING DONE":703,"7|PATCHING IN PROGRESS":704,"7|PATCHING DONE":705,"7|QC DONE":706,"7|BLOCKED":707,"8|NOT STARTED":801,"8|DRESSING IN PROGRESS":802,"8|DRESSING DONE":803,"8|PATCHING IN PROGRESS":804,"8|PATCHING DONE":805,"8|QC DONE":806,"8|BLOCKED":807,"9|NOT STARTED":901,"9|IN PROGRESS":902,"9|DONE":903,"9|QC DONE":904,"9|BLOCKED":905,"10|NOT STARTED":1001,"10|IN PROGRESS":1002,"10|DONE":1003,"10|QC DONE":1004,"10|BLOCKED":1005,"11|NOT STARTED":1101,"11|PULLING IN PROGRESS":1102,"11|PATCHING IN PROGRESS":1103,"11|PATCHING DONE":1104,"11|TONING IS DONE":1105,"11|QC DONE":1106,"11|BLOCKED":1107,"12|NOT STARTED":1201,"12|SIS IN PROGRESS":1202,"12|SIS IS DONE":1203,"12|FULL SET IN PROGRESS":1204,"12|FULL SET IS DONE":1205,"12|QC DONE":1206,"12|BLOCKED":1207,"13|NOT STARTED":1301,"13|IN PROGRESS":1302,"13|DONE":1303,"13|QC DONE":1304,"13|BLOCKED":1305};
-const EMPLOYEE_NAME_TO_ID = {"BADMA MATSAKOV":1,"SAIGID ISRAFILOV":2,"SERGEI OLIMOV":3,"SOHIBNAZAR SATOROV":4,"YAHOR KHIZHNIAK":5,"SERGEI RUMIANTSEV":6,"ALEKSANDR TANYGIN":7,"ALINUR DURUSBEKOV":8,"AMAN IBYRKHANOV":9,"DENIS MANDZHIEV":10,"IHOR BEREZKYI":11,"IHOR KARBIVNYCHYI":12,"MAMADALI MAMADALIEV":13,"MARIA ARAKELYAN":14,"NIKITA HRACHOV":15,"ROVSHAN AKHMEDOV":16,"RUSLAN BLAHYI":17,"VALERII SMOLENTSEV":18,"SYSTEM":999};
-
-function statusIdFromName(processId, statusName) {
-  const key = `${processId}|${String(statusName||"").toUpperCase()}`;
-  return STATUS_NAME_TO_ID[key] || null;
-}
-
-function employeeIdFromInput(input) {
-  const s = String(input || "").trim();
-  if (!s) return 999;
-  if (/^\d+$/.test(s)) return Number(s);
-  return EMPLOYEE_NAME_TO_ID[s.toUpperCase()] || 999;
-}
-
-
     function respStoreKey(suKey, rackId, proc){
       return `pt_resp::${suKey}::${rackId}::${proc}`;
     }
@@ -2187,88 +2118,30 @@ function isQCDoneForProc(suKey, rack, proc){
     }
 
     if (applyBtn) {
-      async function getLiveRowsSafe() {
-  try {
-    return await window.PT_API.getRackProcessStatus();
-  } catch (e) {
-    console.error("Failed to load v_rack_process_status:", e);
-    return [];
-  }
-}
+      applyBtn.addEventListener("click", async ()=>{
+        const targetProc = getTargetProc();
+        if (!targetProc) return;
 
-function getSelectedText(selectEl) {
-  const opt = selectEl?.options?.[selectEl.selectedIndex];
-  return (opt?.textContent || opt?.value || "").trim();
-}
+        const racks = racksForSU(selected.suKey);
+        const rackObj = racks.find(r => r.id === selected.rackId);
+        if (!canEditRackForProcess(rackObj, targetProc)) {
+          renderSelected();
+          return;
+        }
 
-      applyBtn.addEventListener("click", async () => {
-  try {
-    // 1) кто ответственный
-    const who = await pickResponsible();
-    if (!who) {
-      ptApplyHint.textContent = "Responsible is required.";
-      return;
-    }
+        // Ask who is responsible for this change
+        const who = await pickResponsible();
+        if (!who) return;
 
-    // 2) выбранные значения из UI
-    const rackName = getSelectedText(rackSel);       // например "LAC"
-    const processName = getSelectedText(procSel);    // например "ROCE T1: AS-T1/R.T1-T2"
-    const statusName = getSelectedText(statusSel);   // например "PATCHING DONE"
-    const note = (noteEl?.value || "").trim();
+        const newCode = String(statusSelect.value || "");
+        if (newCode) setCode(selected.suKey, selected.rackId, targetProc, newCode);
+        if (noteEl) setStoredNote(selected.suKey, selected.rackId, targetProc, String(noteEl.value || "").trim());
+        setStoredResp(selected.suKey, selected.rackId, targetProc, who);
 
-    if (!rackName || !processName || !statusName) {
-      ptApplyHint.textContent = "Select rack, process and status first.";
-      return;
-    }
-
-    // 3) найдём rack_process_run_id по данным из view
-    const rows = await getLiveRowsSafe();
-
-    const row = rows.find(r =>
-      String(r.rack_name).trim() === rackName &&
-      String(r.process_name).trim() === processName
-    );
-
-    if (!row || !row.rack_process_run_id) {
-      ptApplyHint.textContent =
-        `Can't map selection to DB row. rack="${rackName}", process="${processName}"`;
-      return;
-    }
-
-    // 4) отправляем в backend (в БД)
-    ptApplyHint.textContent = "Saving...";
-    applyBtn.disabled = true;
-
-    const status_id = statusIdFromName(row.process_id, statusName);
-if (!status_id) {
-  ptApplyHint.textContent = `Unknown status "${statusName}" for process ${row.process_id}`;
-  ptApplyHint.style.color = "#c0392b";
-  return;
-}
-
-const responsible_employee_id = employeeIdFromInput(who);
-
-await window.PT_API.updateRunStatus({
-  rack_process_run_id: row.rack_process_run_id,
-  status_id,
-  responsible_employee_id,
-  note,
-});
-
-    ptApplyHint.textContent = "Saved ✅ Refreshing...";
-
-    // 5) самый простой вариант: перезагрузить страницу,
-    // чтобы всё перерисовалось уже из БД/вьюхи
-    setTimeout(() => window.location.reload(), 300);
-
-  } catch (e) {
-    console.error(e);
-    ptApplyHint.textContent = `Error: ${e.message || e}`;
-  } finally {
-    applyBtn.disabled = false;
-  }
-});
-
+        applyFilters();
+        renderSelected();
+        syncApplyUI();
+      });
     }
 
     // Keep header search and sidebar search in sync
@@ -2302,10 +2175,5 @@ await window.PT_API.updateRunStatus({
     applyFilters();
     updateInteractivity();
     renderSelected();
-    (async () => {
-    await syncProgressFromBackend(); // <-- подтянуть статусы из RDS
-    setView(viewMode);
-    renderAll();
-  })();
   });
 })();
