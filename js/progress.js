@@ -41,14 +41,24 @@
 
   async function apiGetRackProcessStatus() {
     if (window.PT_API && typeof window.PT_API.getRackProcessStatus === "function") {
-      return window.PT_API.getRackProcessStatus();
+      try {
+        const data = await window.PT_API.getRackProcessStatus();
+        if (Array.isArray(data) && data.length) return data;
+      } catch (error) {
+        console.warn("PT_API.getRackProcessStatus failed, falling back to REST:", error);
+      }
     }
     return fetchJSON("/api/views/v_rack_process_status");
   }
 
   async function apiUpdateRunStatus(rack_process_run_id, payload = {}) {
     if (window.PT_API && typeof window.PT_API.updateRunStatus === "function") {
-      return window.PT_API.updateRunStatus(rack_process_run_id, payload);
+      try {
+        const result = await window.PT_API.updateRunStatus(rack_process_run_id, payload);
+        if (result != null) return result;
+      } catch (error) {
+        console.warn("PT_API.updateRunStatus failed, falling back to REST:", error);
+      }
     }
     return fetchJSON("/api/runs/status", {
       method: "POST",
@@ -2199,7 +2209,8 @@ function isQCDoneForProc(suKey, rack, proc){
 
     function resolveStatusLabel(statusSelect) {
       const optEl = statusSelect?.options?.[statusSelect.selectedIndex];
-      return String(optEl?.textContent || optEl?.value || "").trim();
+      const raw = String(optEl?.textContent || optEl?.value || "").trim();
+      return raw.replace(/^[^\w]+/u, "").trim();
     }
 
     // --- SAVE LOGIC (Server-first, cross-device) ---
