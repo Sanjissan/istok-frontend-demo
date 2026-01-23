@@ -1,65 +1,87 @@
-
+// js/progress_combined.js
 (function () {
+  // ==========================================================
+  // 1. API & CONFIG (Back-end Logic)
+  //    - Works with window.PT_API if it's injected
+  //    - Or via plain REST using APP_CONFIG.API_BASE_URL / localStorage("pt_api_base_url")
+  // ==========================================================
+  function cleanBase(url) {
+    return String(url || "").trim().replace(/\/+$/, "");
+  }
 
-  // ================================
-  // Backend integration (GET/POST)
-  // ================================
-  let RUNS_CACHE = [];
-  let RUN_ID_BY_RACK_PROC = new Map(); // `${rack_id}||${process_name}` -> rack_process_run_id
-  let STATUS_ID_BY_LABEL = new Map();  // normalized label -> status_id
+  function resolveBase() {
+    const cfg = window.APP_CONFIG && window.APP_CONFIG.API_BASE_URL;
+    if (cfg !== undefined && cfg !== null && String(cfg).trim() !== "") return cleanBase(cfg);
+    const fromStorage = (() => { try { return localStorage.getItem("pt_api_base_url"); } catch { return ""; } })();
+    if (fromStorage) return cleanBase(fromStorage);
+    return "";
+  }
 
-  function normLabel(s){ return String(s||"").trim().replace(/\s+/g," ").toUpperCase(); }
-  function rackProcKey(rackId, procName){ return `${String(rackId||"").trim()}||${String(procName||"").trim()}`; }
+  async function fetchJSON(pathOrUrl, opts = {}) {
+    const base = resolveBase();
+    const url = /^https?:\/\//i.test(pathOrUrl)
+      ? pathOrUrl
+      : (base ? `${base}${pathOrUrl}` : pathOrUrl);
 
-  function rebuildRunIndexes(runs){
-    RUN_ID_BY_RACK_PROC = new Map();
-    STATUS_ID_BY_LABEL = new Map();
-    for (const r of (runs||[])){
-      if (r && r.rack_id && r.process_name && r.rack_process_run_id){
-        RUN_ID_BY_RACK_PROC.set(rackProcKey(r.rack_id, r.process_name), Number(r.rack_process_run_id));
-      }
-      if (r && r.current_status && r.status_id){
-        STATUS_ID_BY_LABEL.set(normLabel(r.current_status), Number(r.status_id));
-      }
+    const res = await fetch(url, {
+      ...opts,
+      headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
+      credentials: opts.credentials || "include",
+    });
+
+    const text = await res.text();
+    let body;
+    try { body = text ? JSON.parse(text) : null; } catch { body = text; }
+
+    if (!res.ok) {
+      throw new Error(`API error ${res.status}: ${typeof body === "string" ? body : JSON.stringify(body)}`);
     }
-  }
-  function getRunId(rackId, procName){ return RUN_ID_BY_RACK_PROC.get(rackProcKey(rackId, procName)) || null; }
-  function getStatusIdByLabel(label){ return STATUS_ID_BY_LABEL.get(normLabel(label)) || null; }
-
-  function parseResponsibleToEmployeeId(responsible){
-    const s = String(responsible||"").trim();
-    const m = s.match(/^(\d{1,9})\s*[-:]/);
-    if (m) return Number(m[1]);
-    const n = Number(s);
-    if (Number.isFinite(n) && n > 0) return n;
-    return 999;
+    return body;
   }
 
-  async function apiLoadRuns(limit=1000){
-    if (!window.PT_API || typeof window.PT_API.getRuns !== "function"){
-      throw new Error("PT_API.getRuns missing. Ensure js/api.js is loaded before js/progress.js");
+  async function apiGetRackProcessStatus() {
+    if (window.PT_API && typeof window.PT_API.getRackProcessStatus === "function") {
+      return window.PT_API.getRackProcessStatus();
     }
-    const runs = await window.PT_API.getRuns(limit);
-    RUNS_CACHE = Array.isArray(runs) ? runs : [];
-    rebuildRunIndexes(RUNS_CACHE);
-    return RUNS_CACHE;
+    return fetchJSON("/api/views/v_rack_process_status");
   }
 
-  async function apiPostStatusUpdate(payload){
-    if (!window.PT_API || typeof window.PT_API.updateRunStatus !== "function"){
-      throw new Error("PT_API.updateRunStatus missing. Ensure js/api.js is loaded before js/progress.js");
+  async function apiUpdateRunStatus(rack_process_run_id, payload = {}) {
+    if (window.PT_API && typeof window.PT_API.updateRunStatus === "function") {
+      return window.PT_API.updateRunStatus(rack_process_run_id, payload);
     }
-    return window.PT_API.updateRunStatus(payload);
+    return fetchJSON("/api/runs/status", {
+      method: "POST",
+      body: JSON.stringify({ rack_process_run_id, ...payload }),
+    });
   }
 
-  function getDbStatusLabel(rackId, procName){
-    const runId = getRunId(rackId, procName);
-    if (!runId) return null;
-    const row = (RUNS_CACHE||[]).find(r => Number(r.rack_process_run_id) === Number(runId));
-    return row && row.current_status ? String(row.current_status) : null;
+  async function apiGetStatuses() {
+    if (window.PT_API && typeof window.PT_API.getStatuses === "function") {
+      return window.PT_API.getStatuses();
+    }
+    return fetchJSON("/api/statuses");
+  }
+
+  async function apiGetProcesses() {
+    if (window.PT_API && typeof window.PT_API.getProcesses === "function") {
+      return window.PT_API.getProcesses();
+    }
+    return fetchJSON("/api/processes");
+  }
+
+  async function apiGetProcessStatuses(processId) {
+    if (window.PT_API && typeof window.PT_API.getProcessStatuses === "function") {
+      return window.PT_API.getProcessStatuses(processId);
+    }
+    return fetchJSON(`/api/processes/${processId}/statuses`);
   }
 
 
+  window.PT_REST = { apiGetRackProcessStatus, apiUpdateRunStatus, apiGetStatuses, apiGetProcesses, apiGetProcessStatuses, fetchJSON, resolveBase };
+
+})();
+(function () {
   const T_A_1_7 = { 1:"NOT STARTED", 2:"DRESSING IN PROGRESS", 3:"DRESSING DONE", 4:"PATCHING IN PROGRESS", 5:"PATCHING DONE", 6:"QC DONE", 7:"BLOCKED" };
   const T_B_1_5 = { 1:"NOT STARTED", 2:"IN PROGRESS", 3:"DONE", 4:"QC DONE", 5:"BLOCKED" };
   const T_IPMI_CAT6 = { 1:"NOT STARTED", 2:"PULLING IN PROGRESS", 3:"PATCHING IN PROGRESS", 4:"PATCHING DONE", 5:"TONING IS DONE", 6:"QC DONE", 7:"BLOCKED" };
@@ -101,20 +123,33 @@
   // ---- Strict status colors support ----
   // Convert a human-readable status label to a small set of color keys.
   // The actual HEX values are defined in CSS (strict palette).
-  function statusLabelToKey(label){
-    const t = String(label || "").toLowerCase();
-    if (t.includes("blocked")) return "red";
-    if (t.includes("qc")) return "green";
-    if (t.includes("toning")) return "purple";
-    // "DONE" states (keep more specific ones above so they don't get overridden)
-    if (t.includes("patching done") || t.includes("patching is done")) return "blue";
-    // Generic done (covers: "SIS IS DONE", "FULL SET IS DONE", etc.)
-    if (t === "done" || t.endsWith(" done") || t.includes(" is done")) return "blue";
-    if (t.includes("patching in progress")) return "cyan";
-    if (t.includes("dressing done") || t.includes("dressing is done")) return "orange";
-    if (t === "in progress" || t.includes("dressing in progress") || t.includes("pulling in progress")) return "yellow";
-    return "default";
-  }
+function statusLabelToKey(label){
+  const t = String(label || "").toLowerCase().trim();
+
+  const keys = new Set(["yellow","orange","cyan","blue","green","red","purple","default"]);
+  if (keys.has(t)) return t;
+  if (t.includes("done") && t.includes("dressing done")) return "orange";
+   if (t.includes("in progress") && t.includes("patching in progress")) return "cyan";
+  // 1) system
+  if (t.includes("blocked")) return "red";
+  if (t.includes("qc")) return "green";
+  if (t.includes("toning")) return "purple";
+
+  // 2) SIS
+  if (t.includes("sis") && t.includes("in progress")) return "yellow";
+  if (t.includes("sis") && (t.includes("is done") || t.endsWith("done") || t.includes(" done"))) return "orange";
+
+  // 3) FULL SET
+  if (t.includes("full set") && t.includes("in progress")) return "cyan";
+  if (t.includes("full set") && (t.includes("is done") || t.endsWith("done") || t.includes(" done"))) return "blue";
+
+  // 4) fallback
+  if (t.includes("in progress")) return "yellow";
+  if (t.includes("done")) return "blue";
+
+  return "default";
+}
+
 
   function statusLabelToDot(label){
     const k = statusLabelToKey(label);
@@ -532,9 +567,14 @@ const CELL_RACKS = {
     "LU1_ROW12_SIS_T1": [
       { id:"NA29", name:"NA29", type:"SIS T1", processes: (PROCESS_BY_TYPE["SIS T1"] || []) },
     ],
+    "LU1_ROW12_SIS_NM": [
+    { id:"NA05", name:"NA28", type:"SIS NM", processes: (PROCESS_BY_TYPE["SIS NM"] || []) },
+    ],
     "LU1_ROW13_SIS_T1": [
-      { id:"NB28", name:"NB28", type:"SIS T1", processes: (PROCESS_BY_TYPE["SIS T1"] || []) },
-      { id:"NB29", name:"NB29", type:"SIS T1", processes: (PROCESS_BY_TYPE["SIS T1"] || []) },
+      { id:"NB29", name:"NB29", type:"SIS NM", processes: (PROCESS_BY_TYPE["SIS NM"] || []) },
+    ],
+    "LU1_ROW13_SIS_NM": [
+      { id:"NB28", name:"NB28", type:"SIS NM", processes: (PROCESS_BY_TYPE["SIS NM"] || []) },
     ],
     "LU2_ROW12_ROCE_T2_RAIL1": [
       { id:"NA24", name:"NA24", type:"ROCE T2", processes: (PROCESS_BY_TYPE["ROCE T2"] || []) },
@@ -552,9 +592,15 @@ const CELL_RACKS = {
       { id:"NA22", name:"NA22", type:"SIS T1", processes: (PROCESS_BY_TYPE["SIS T1"] || []) },
       { id:"NA23", name:"NA23", type:"SIS T1", processes: (PROCESS_BY_TYPE["SIS T1"] || []) },
     ],
+    "LU3_ROW12_SIS_NM": [
+    { id:"NA21", name:"NA21", type:"SIS NM", processes: (PROCESS_BY_TYPE["SIS NM"] || []) },
+    ],
     "LU3_ROW13_SIS_T1": [
       { id:"NB22", name:"NB22", type:"SIS T1", processes: (PROCESS_BY_TYPE["SIS T1"] || []) },
       { id:"NB23", name:"NB23", type:"SIS T1", processes: (PROCESS_BY_TYPE["SIS T1"] || []) },
+    ],
+    "LU3_ROW13_SIS_NM": [
+      { id:"NB21", name:"NB21", type:"SIS NM", processes: (PROCESS_BY_TYPE["SIS NM"] || []) },
     ],
     "LU4_ROW12_ROCE_T2_RAIL2": [
       { id:"NA17", name:"NA17", type:"ROCE T2", processes: (PROCESS_BY_TYPE["ROCE T2"] || []) },
@@ -590,9 +636,15 @@ const CELL_RACKS = {
       { id:"NA12", name:"NA12", type:"SIS T1", processes: (PROCESS_BY_TYPE["SIS T1"] || []) },
       { id:"NA13", name:"NA13", type:"SIS T1", processes: (PROCESS_BY_TYPE["SIS T1"] || []) },
     ],
+    "LU6_ROW12_SIS_NM": [
+      { id:"NA11", name:"NA11", type:"SIS NM", processes: (PROCESS_BY_TYPE["SIS NM"] || []) },
+    ],
     "LU6_ROW13_SIS_T1": [
       { id:"NB12", name:"NB12", type:"SIS T1", processes: (PROCESS_BY_TYPE["SIS T1"] || []) },
       { id:"NB13", name:"NB13", type:"SIS T1", processes: (PROCESS_BY_TYPE["SIS T1"] || []) },
+    ],
+    "LU6_ROW13_SIS_NM": [
+      { id:"NB11", name:"NB11", type:"SIS NM", processes: (PROCESS_BY_TYPE["SIS NM"] || []) },
     ],
     "LU7_ROW12_ROCE_T2_RAIL3": [
       { id:"NA07", name:"NA07", type:"ROCE T2", processes: (PROCESS_BY_TYPE["ROCE T2"] || []) },
@@ -609,8 +661,14 @@ const CELL_RACKS = {
     "LU8_ROW12_SIS_T1": [
       { id:"NA06", name:"NA06", type:"SIS T1", processes: (PROCESS_BY_TYPE["SIS T1"] || []) },
     ],
+    "LU8_ROW12_SIS_NM": [
+    { id:"NA05", name:"NA05", type:"SIS NM", processes: (PROCESS_BY_TYPE["SIS NM"] || []) },
+    ],
     "LU8_ROW13_SIS_T1": [
       { id:"NB06", name:"NB06", type:"SIS T1", processes: (PROCESS_BY_TYPE["SIS T1"] || []) },
+    ],
+    "LU8_ROW13_SIS_NM": [
+    { id:"NB05", name:"NB05", type:"SIS NM", processes: (PROCESS_BY_TYPE["SIS NM"] || []) },
     ],
     "LU9_ROW12_ROCE_T2_RAIL4": [
       { id:"NA01", name:"NA01", type:"ROCE T2", processes: (PROCESS_BY_TYPE["ROCE T2"] || []) },
@@ -852,6 +910,106 @@ const CELL_RACKS = {
     PROGRESS[k] = Number(code);
   }
 
+  const PT_DB = { statusKeyToId: new Map(), procDescToId: new Map(), runIndex: new Map(), loaded: false };
+
+  function ptPick(row, keys){
+    for (const k of keys){
+      if (row && row[k] != null && String(row[k]).trim() !== "") return row[k];
+    }
+    return null;
+  }
+
+  function ptRackIdFromRow(row, suKey){
+    const rackIdRaw = ptPick(row, ["rack_id","rackId","rack"]);
+    const rackName = ptPick(row, ["rack_name","rackName"]);
+    let rackId = rackIdRaw != null ? String(rackIdRaw).trim() : (rackName != null ? String(rackName).trim() : "");
+    if (!rackId) return "";
+    if (/\-SU\d+$/i.test(rackId)) return rackId;
+    if (/^(LAC|LAH|LAM|LAR|LAW|LBB|LBG|LBL|LBQ|LBV|LCA|LCF|LCK|LCP|LCU|LCZ|LDE|LDJ|LDO|LDT|LDY|LED|LEI|LEN|LES|LEX|LFC|LFH|LFM|LFR|LFW|LGB|LGG|LGL|LGQ|LGV|LHA|LHF|LHK|LHP|LHU|LHZ|LIE|LIJ|LIO|LIT|LIY|LJD|LJI|LJN|LJS|LJX|LKC|LKH|LKM|LKR|LKW|LLB|LLG|LLL|LLQ|LLV|LMA|LMF|LMK|LMP|LMU|LMZ|LNE|LNJ|LNO|LNT|LNY|LOD|LOI|LON|LOS|LOX|LPC|LPH|LPM|LPR|LPW|LQB|LQG|LQL|LQQ|LQV|LRA|LRF|LRK|LRP|LRU|LRZ|LSE|LSJ|GPU)$/i.test(rackId) && /^\d+$/.test(String(suKey||""))) {
+      rackId = rackId + "-SU" + String(suKey);
+    }
+    return rackId;
+  }
+
+  function ptFindCodeByLabel(procKey, statusLabel){
+    const tpl = PROCESS_TEMPLATES[procKey];
+    if (!tpl) return null;
+    const target = norm(statusLabel);
+    for (const [k, v] of Object.entries(tpl)){
+      if (norm(v) === target) return Number(k);
+    }
+    return null;
+  }
+
+  function ptCodeToStatusId(procKey, code, processId){
+    const tpl = PROCESS_TEMPLATES[procKey];
+    if (!tpl) return null;
+    const label = tpl[Number(code)];
+    if (!label) return null;
+    const pid = Number(processId);
+    if (!pid) return null;
+    const id = PT_DB.statusKeyToId.get(pid + "|" + norm(label));
+    return (id != null) ? Number(id) : null;
+  }
+
+  async function ptBootstrapFromBackend(){
+    if (!window.PT_REST) return;
+    try {
+      const processes = await window.PT_REST.apiGetProcesses();
+      PT_DB.procDescToId = new Map((processes || []).map(p => [norm(p.description), Number(p.id)]));
+      const pairs = [];
+      for (const p of (processes || [])){
+        const pid = Number(p.id);
+        if (!pid) continue;
+        const sts = await window.PT_REST.apiGetProcessStatuses(pid);
+        for (const s of (sts || [])){
+          pairs.push([pid + "|" + norm(s.name), Number(s.id)]);
+        }
+      }
+      PT_DB.statusKeyToId = new Map(pairs);
+    } catch {}
+    try {
+      const rows = await window.PT_REST.apiGetRackProcessStatus();
+      for (const row of (rows || [])){
+        const runId = Number(ptPick(row, ["rack_process_run_id","run_id","id"]));
+        if (!runId) continue;
+        const suKey = String(ptPick(row, ["su_key","su","suKey","su_id","su_number"]) || "").trim();
+        const procKey = String(ptPick(row, ["process_name","process","processName"]) || "").trim();
+        if (!suKey || !procKey) continue;
+        const rackId = ptRackIdFromRow(row, suKey);
+        if (!rackId) continue;
+
+        const procId = PT_DB.procDescToId.get(norm(procKey)) || Number(ptPick(row, ["process_id","processId"])) || null;
+        PT_DB.runIndex.set(`${suKey}|${rackId}|${procKey}`, { runId, processId: procId });
+
+        const statusName = ptPick(row, ["status_name","status","statusName","current_status_name"]);
+        if (statusName != null) {
+          const code = ptFindCodeByLabel(procKey, statusName);
+          if (code != null) setCode(suKey, rackId, procKey, code);
+        }
+
+        const note = ptPick(row, ["note","notes","comment"]);
+        if (note != null && String(note).trim() !== "") {
+          setStoredNote(suKey, rackId, procKey, String(note).trim());
+        }
+      }
+      PT_DB.loaded = true;
+    } catch {}
+  }
+
+  async function ptPersistToBackend(suKey, rackId, procKey, code, noteText){
+    if (!window.PT_REST) throw new Error("API is not available");
+    const runInfo = PT_DB.runIndex.get(`${suKey}|${rackId}|${procKey}`);
+    if (!runInfo) throw new Error("No rack_process_run_id for selected rack/process");
+    const runId = (typeof runInfo === "object" && runInfo) ? Number(runInfo.runId) : Number(runInfo);
+    const processId = (typeof runInfo === "object" && runInfo) ? Number(runInfo.processId) : (PT_DB.procDescToId.get(norm(procKey)) || 0);
+    if (!runId) throw new Error("No rack_process_run_id for selected rack/process");
+    const status_id = ptCodeToStatusId(procKey, code, processId);
+    if (!status_id) throw new Error("Cannot map status to DB id");
+    return window.PT_REST.apiUpdateRunStatus(runId, { status_id, note: (noteText ? String(noteText).trim() : null) });
+  }
+
+
   function hasBlockedBySU(suKey, proc){
     const racks = racksForSU(suKey);
     if (!racks.length) return false;
@@ -1072,7 +1230,7 @@ const CELL_RACKS = {
     return found ? max : 1;
   }
 
-  document.addEventListener("DOMContentLoaded", function(){
+  document.addEventListener("DOMContentLoaded", async function(){
     injectStyles();
 
     const panel = document.querySelector(".panel");
@@ -1582,8 +1740,7 @@ for (const p of items){
       if (!processSelect.value) processSelect.value = "ALL";
 
       // Re-render process chips so they match the dropdown.
-      renderProcessChips();
-
+      renderProcessChips(); 
       if (viewChip) viewChip.textContent = viewMode === "process" ? "Process view" : "Rack view";
       updateInteractivity();
       applyFilters();
@@ -2100,55 +2257,22 @@ function isQCDoneForProc(suKey, rack, proc){
         const who = await pickResponsible();
         if (!who) return;
 
-        
-        // Convert selected template code -> label
-        const tpl = PROCESS_TEMPLATES[targetProc];
-        const codeNum = Number(statusSelect.value || 0);
-        const label = (tpl && tpl[codeNum]) ? String(tpl[codeNum]) : "";
-        if (!label) return;
-
-        // Ensure we have runs loaded for runId + status_id mapping
-        if (!RUNS_CACHE || RUNS_CACHE.length === 0) {
-          await apiLoadRuns(1000);
-        }
-
-        const runId = getRunId(selected.rackId, targetProc);
-        if (!runId) {
-          alert(`No run found in DB for ${selected.rackId} / ${targetProc}`);
-          return;
-        }
-
-        let statusId = getStatusIdByLabel(label);
-        if (!statusId) {
-          await apiLoadRuns(1000);
-          statusId = getStatusIdByLabel(label);
-        }
-        if (!statusId) {
-          alert(`Can't map status "${label}" to status_id. Check DB statuses table.`);
-          return;
-        }
-
-        const employeeId = parseResponsibleToEmployeeId(who);
-        const note = noteEl ? String(noteEl.value || "").trim() : "";
-
-        // Persist to backend
-        await apiPostStatusUpdate({
-          rack_process_run_id: runId,
-          status_id: statusId,
-          responsible_employee_id: employeeId,
-          note,
-        });
-
-        // Reload runs so UI reflects persisted state
-        await apiLoadRuns(1000);
-
-        // Update UI state (keep local resp/note fallbacks)
-        selected.statusByProc[targetProc] = label;
-        if (noteEl) setStoredNote(selected.suKey, selected.rackId, targetProc, note);
+        const newCode = String(statusSelect.value || "");
+        if (newCode) setCode(selected.suKey, selected.rackId, targetProc, newCode);
+        if (noteEl) setStoredNote(selected.suKey, selected.rackId, targetProc, String(noteEl.value || "").trim());
         setStoredResp(selected.suKey, selected.rackId, targetProc, who);
-applyFilters();
+
+        applyFilters();
         renderSelected();
         syncApplyUI();
+        try {
+          if (applyHint) applyHint.textContent = "Saving...";
+          await ptPersistToBackend(selected.suKey, selected.rackId, targetProc, newCode, noteEl ? String(noteEl.value || "").trim() : "");
+          if (applyHint) applyHint.textContent = "Saved";
+        } catch (e) {
+          if (applyHint) applyHint.textContent = "Save failed";
+          console.error(e);
+        }
       });
     }
 
@@ -2178,10 +2302,16 @@ applyFilters();
       if (qcOnly.checked && problemsOnly) problemsOnly.checked = false;
       applyFilters();
     });
-
-
-    applyFilters();
-    updateInteractivity();
-    renderSelected();
+    ptBootstrapFromBackend().then(function(){
+      applyFilters();
+      updateInteractivity();
+      renderSelected();
+      syncApplyUI();
+    }).catch(function(){
+      applyFilters();
+      updateInteractivity();
+      renderSelected();
+      syncApplyUI();
+    });
   });
 })();
