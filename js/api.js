@@ -16,31 +16,37 @@
     const fromStorage = localStorage.getItem(STORAGE_KEY);
     if (fromStorage) return cleanBase(fromStorage);
 
-    // 3) fallback — relative
+    // 3) fallback — relative (same-origin)
     return "";
   }
 
   async function fetchJSON(pathOrUrl, opts = {}) {
     const base = resolveBase();
-    const url = pathOrUrl.startsWith("http") ? pathOrUrl : `${base}${pathOrUrl}`;
+    const url = /^https?:\/\//i.test(pathOrUrl) ? pathOrUrl : `${base}${pathOrUrl}`;
 
-    const method = (opts.method || "GET").toUpperCase();
+    const method = String(opts.method || "GET").toUpperCase();
     const isGetLike = method === "GET" || method === "HEAD";
+
+    const headers = {
+      ...(opts.headers || {}),
+    };
+
+    // Для GET/HEAD просим не кэшировать
+    if (isGetLike) {
+      headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0";
+      headers["Pragma"] = "no-cache";
+    }
+
+    // Если есть body и не задан Content-Type — ставим JSON
+    if (opts.body != null && headers["Content-Type"] == null) {
+      headers["Content-Type"] = "application/json";
+    }
 
     const res = await fetch(url, {
       ...opts,
-      // ключевое: не даём браузеру кэшировать API-ответы
-      cache: isGetLike ? "no-store" : "no-store",
-      headers: {
-        ...(isGetLike
-          ? {
-              "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-              Pragma: "no-cache",
-            }
-          : {}),
-        "Content-Type": "application/json",
-        ...(opts.headers || {}),
-      },
+      method,
+      cache: "no-store",
+      headers,
     });
 
     const text = await res.text();
@@ -52,9 +58,8 @@
     }
 
     if (!res.ok) {
-      throw new Error(
-        `API error ${res.status}: ${typeof body === "string" ? body : JSON.stringify(body)}`
-      );
+      const msg = typeof body === "string" ? body : JSON.stringify(body);
+      throw new Error(`API error ${res.status}: ${msg}`);
     }
 
     return body;
@@ -63,46 +68,43 @@
   // ===== API =====
 
   function getRuns(limit = 1000) {
-    // чтобы точно не получить кеш даже при странном прокси:
-    return fetchJSON(`/api/runs?limit=${limit}&_=${Date.now()}`);
+    // _=Date.now() на всякий случай, если где-то сидит странный proxy cache
+    return fetchJSON(`/api/runs?limit=${Number(limit) || 1000}&_=${Date.now()}`);
   }
 
-  // Update run status.
-  // Backwards-compatible:
-  //   updateRunStatus({ rack_process_run_id, status_id, note, ... })
-  // Preferred:
-  //   updateRunStatus(rack_process_run_id, { status_id, note, ... })
-  function updateRunStatus(rack_process_run_id, payload = {}) {
-    // If called with a single object, keep old behavior.
+  function getRackProcessStatus(limit = 5000) {
+    // IMPORTANT: /api/views/v_rack_process_status LIMIT 200 без ORDER BY может не включать нужные строки
+    return getRuns(limit);
+  }
+
+  function updateRunStatus(arg1, arg2) {
+    // Backwards-compatible:
+    // - updateRunStatus({ rack_process_run_id, status_id, note, ... })
+    // - updateRunStatus(rack_process_run_id, { status_id, note, ... })
+    let payload;
+
     if (
-      arguments.length === 1 &&
-      rack_process_run_id &&
-      typeof rack_process_run_id === "object" &&
-      !Array.isArray(rack_process_run_id)
+      (typeof arg1 === "number" || typeof arg1 === "string") &&
+      arg2 &&
+      typeof arg2 === "object"
     ) {
-      return fetchJSON(`/api/runs/status`, {
-        method: "POST",
-        body: JSON.stringify(rack_process_run_id),
-      });
+      payload = { rack_process_run_id: Number(arg1), ...arg2 };
+    } else {
+      payload = arg1;
     }
 
-    // New behavior: id + payload
     return fetchJSON(`/api/runs/status`, {
       method: "POST",
-      body: JSON.stringify({ rack_process_run_id, ...(payload || {}) }),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
     });
-  }
-
-  function getRackProcessStatus() {
-    // то же самое — добавим cache-bust
-    return fetchJSON(`/api/views/v_rack_process_status?_=${Date.now()}`);
   }
 
   window.PT_API = {
     fetchJSON,
     getRuns,
-    updateRunStatus,
     getRackProcessStatus,
+    updateRunStatus,
     resolveBase,
     STORAGE_KEY,
   };
