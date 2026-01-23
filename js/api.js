@@ -67,10 +67,29 @@
     return fetchJSON(`/api/runs?limit=${limit}&_=${Date.now()}`);
   }
 
-  function updateRunStatus(payload) {
+  // Update run status.
+  // Backwards-compatible:
+  //   updateRunStatus({ rack_process_run_id, status_id, note, ... })
+  // Preferred:
+  //   updateRunStatus(rack_process_run_id, { status_id, note, ... })
+  function updateRunStatus(rack_process_run_id, payload = {}) {
+    // If called with a single object, keep old behavior.
+    if (
+      arguments.length === 1 &&
+      rack_process_run_id &&
+      typeof rack_process_run_id === "object" &&
+      !Array.isArray(rack_process_run_id)
+    ) {
+      return fetchJSON(`/api/runs/status`, {
+        method: "POST",
+        body: JSON.stringify(rack_process_run_id),
+      });
+    }
+
+    // New behavior: id + payload
     return fetchJSON(`/api/runs/status`, {
       method: "POST",
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ rack_process_run_id, ...(payload || {}) }),
     });
   }
 
