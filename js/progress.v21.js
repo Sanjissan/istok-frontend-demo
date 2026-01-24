@@ -1116,11 +1116,10 @@ function ptApplyBackendRowToUI(row) {
   const procId = PT_DB.procDescToId.get(norm(procKey)) || Number(ptPick(row, ["process_id","processId"])) || null;
 
   for (const rid of rackIds) {
+    // IMPORTANT: use SU-scoped keys only to avoid collisions across different SUs
     PT_DB.runIndex.set(`${suKey}|${rid}|${procKey}`, { runId, processId: procId });
     PT_DB.runIndex.set(`${norm(suKey)}|${norm(rid)}|${norm(procKey)}`, { runId, processId: procId });
-  }
-
-  const statusName = ptPick(row, ["status_name","status","statusName","current_status_name"]);
+  }const statusName = ptPick(row, ["status_name","status","statusName","current_status_name"]);
   if (statusName != null) {
     const code = ptFindCodeByLabel(procKey, statusName);
     if (code != null) {
@@ -1246,10 +1245,11 @@ function ptApplyBackendRowToUI(row) {
 
     // 1) Fast-path lookups (existing key formats)
     let runInfo =
-  PT_DB.runIndex.get(`${suStr}|${rackStr}|${procStr}`) ||
-  PT_DB.runIndex.get(`${suNorm}|${rackNorm}|${procNorm}`) 
-  PT_DB.runIndex.get(`${rackStr}|${procStr}`) ||        // fallback only
-  PT_DB.runIndex.get(`${rackNorm}|${procNorm}`);        // fallback only
+      PT_DB.runIndex.get(`${suStr}|${rackStr}|${procStr}`) ||
+      PT_DB.runIndex.get(`${rackStr}|${procStr}`) ||
+      PT_DB.runIndex.get(`${suNorm}|${rackNorm}|${procNorm}`) ||
+      PT_DB.runIndex.get(`${rackNorm}|${procNorm}`);
+
     // 2) Try alternate rack id formats for SU-based racks (GPU-SUXX etc.)
     if (!runInfo) {
       const suNumFromSuKey = suStr.replace(/^SU\s*/i, "").trim();
@@ -1258,10 +1258,10 @@ function ptApplyBackendRowToUI(row) {
       if (suNum) {
         const altRackId = `GPU-SU${suNum}`;
         runInfo =
-          PT_DB.runIndex.get(`${altRackId}|${procStr}`) ||
-          PT_DB.runIndex.get(`${norm(altRackId)}|${procNorm}`) ||
           PT_DB.runIndex.get(`${suNum}|${altRackId}|${procStr}`) ||
-          PT_DB.runIndex.get(`${norm(suNum)}|${norm(altRackId)}|${procNorm}`);
+          PT_DB.runIndex.get(`${norm(suNum)}|${norm(altRackId)}|${procNorm}`) ||
+          PT_DB.runIndex.get(`${altRackId}|${procStr}`) ||
+          PT_DB.runIndex.get(`${norm(altRackId)}|${procNorm}`);
       }
     }
 
@@ -1284,7 +1284,7 @@ function ptApplyBackendRowToUI(row) {
     //    For writes we use /api/runs which contains rack_process_run_id reliably.
     if (!runInfo) {
       try {
-        const rows = await window.PT_REST.fetchJSON("/api/runs?limit=1000");
+        const rows = await window.PT_REST.fetchJSON("/api/runs?limit=20000&_=" + Date.now());
         const suNum = suNumFromKey(suStrRaw) || suNumFromKey(suStr) || suStr.replace(/^SU\s*/i, "").trim();
         if (Array.isArray(rows) && suNum) {
           const match = rows.find(r =>
@@ -1302,7 +1302,6 @@ function ptApplyBackendRowToUI(row) {
 
             // Seed index with a few helpful keys so next save is fast
             try {
-              PT_DB.runIndex.set(`${rackStr}|${procStr}`, runInfo);
               PT_DB.runIndex.set(`${suNum}|${rackStr}|${procStr}`, runInfo);
 
               const baseRack = String(match.rack_name || "").trim();
@@ -1318,7 +1317,34 @@ function ptApplyBackendRowToUI(row) {
     }
 
     if (!runInfo) {
-      throw new Error(`PT_FIX_RUNLOOKUP_V10: No rack_process_run_id for selected SU/rack/process: su=${suStr}, rack=${rackStr}, process=${procStr}`);
+      // Upsert mode: let backend create missing rack + run rows (requires runs.upsert.js deployed)
+      const processIdGuess = (PT_DB.procDescToId.get(procNorm) || 0);
+      const status_id_tmp = ptCodeToStatusId(procStr, code, processIdGuess);
+      if (!status_id_tmp) throw new Error("Cannot map status to DB id");
+
+      const upsertPayload = {
+        su_key: Number(suStr),
+        rack_name: String(rackStr).split("@")[0],
+        process_id: processIdGuess || undefined,
+        process_name: processIdGuess ? undefined : procStr,
+        status_id: status_id_tmp,
+        note: (noteText ? String(noteText).trim() : null),
+      };
+
+      const respUpsert = await window.PT_REST.fetchJSON("/api/runs/status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(upsertPayload),
+      });
+
+      const updatedUpsert = (respUpsert && respUpsert.updated) ? respUpsert.updated : null;
+      if (updatedUpsert) {
+        ptApplyBackendRowToUI(updatedUpsert);
+        PT_DB.loaded = true;
+        return respUpsert;
+      }
+
+      throw new Error("Upsert failed: backend did not return updated row");
     }
 
 const runId = (typeof runInfo === "object" && runInfo) ? Number(runInfo.runId) : Number(runInfo);const processId = (typeof runInfo === "object" && runInfo) ? Number(runInfo.processId)
