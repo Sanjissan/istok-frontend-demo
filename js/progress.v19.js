@@ -96,7 +96,7 @@ window.PT_DEBUG.run575 = function () {
     if (window.PT_API && typeof window.PT_API.getRackProcessStatus === "function") {
       return window.PT_API.getRackProcessStatus();
     }
-    return fetchJSON("/api/runs?limit=1000");
+    return fetchJSON("/api/runs?limit=10000");
   }
 
   async function apiUpdateRunStatus(rack_process_run_id, payload = {}) {
