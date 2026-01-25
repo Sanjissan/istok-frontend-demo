@@ -1255,6 +1255,19 @@ function ptApplyBackendRowToUI(row) {
   const baseRackId = ptRackIdFromRow(row, suNumOnly);
   const rackIds = ptCandidateRackIdsForRow(suNumOnly, row, baseRackId);
 
+  // 🔧 ДОБАВКА: принудительно добавляем rack_name из backend
+const rackName = String(ptPick(row, ["rack_name", "rackName", "rack"]) || "").trim();
+
+if (rackName) {
+  rackIds.push(rackName);                    // "LPC"
+  rackIds.push(`${rackName}-SU${suNumOnly}`); // "LPC-SU79"
+}
+
+// убираем дубликаты
+const uniqueRackIds = Array.from(new Set(rackIds));
+
+console.log("[RACKIDS FINAL]", uniqueRackIds);
+
   console.log("[RACKIDS]", suNumOnly, "=>", suKeyEff, rackIds);
 
   // ... дальше твой код без изменений, но setCodeFromBackend/setStoredNote должны использовать suKeyEff (UI key)
@@ -1262,7 +1275,7 @@ function ptApplyBackendRowToUI(row) {
 
 const procId = PT_DB.procDescToId.get(norm(procKey)) || Number(ptPick(row, ["process_id","processId"])) || null;
 
-for (const rid of rackIds) {
+for (const rid of uniqueRackIds) {
   PT_DB.runIndex.set(`${suKeyEff}|${rid}|${procKey}`, { runId, processId: procId });
   PT_DB.runIndex.set(`${norm(suKeyEff)}|${norm(rid)}|${norm(procKey)}`, { runId, processId: procId });
   PT_DB.runIndex.set(`${rid}|${procKey}`, { runId, processId: procId });
@@ -1272,7 +1285,7 @@ for (const rid of rackIds) {
 if (statusName != null) {
   const code = ptFindCodeByLabel(procKey, statusName);
   if (code != null) {
-    for (const rid of rackIds) {
+    for (const rid of runiqueRackIds) {
       setCodeFromBackend(suKeyEff, rid, procKey, code);
     }
   }
@@ -1280,7 +1293,7 @@ if (statusName != null) {
 
   const note = ptPick(row, ["note","notes","comment"]);
   if (note != null && String(note).trim() !== "") {
-    for (const rid of rackIds) {
+    for (const rid of uniqueRackIds) {
       setStoredNote(suKeyEff, rid, procKey, String(note).trim());
     }
   }
