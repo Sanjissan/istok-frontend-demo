@@ -115,16 +115,7 @@ window.PT_DEBUG.run575 = function () {
     return [];
   }
 
-  function ptDeepGet(obj, key){
-    if (!obj || typeof obj !== "object") return undefined;
-    if (Object.prototype.hasOwnProperty.call(obj, key)) return obj[key];
-    // Common nesting
-    const nests = ["rack","rack_info","rackInfo","run","process","status","current_status","currentStatus"];
-    for (const n of nests){
-      if (obj[n] && typeof obj[n]==="object" && Object.prototype.hasOwnProperty.call(obj[n], key)) return obj[n][key];
-    }
-    return undefined;
-  }
+  
 
 async function apiUpdateRunStatus(rack_process_run_id, payload = {}) {
     if (window.PT_API && typeof window.PT_API.updateRunStatus === "function") {
@@ -1010,6 +1001,16 @@ const CELL_RACKS = {
 
   const PT_DB = { statusKeyToId: new Map(), procDescToId: new Map(), runIndex: new Map(), loaded: false };
 
+  function ptDeepGet(obj, key){
+    if (!obj || typeof obj !== "object") return undefined;
+    if (Object.prototype.hasOwnProperty.call(obj, key)) return obj[key];
+    // Common nesting
+    const nests = ["rack","rack_info","rackInfo","run","process","status","current_status","currentStatus"];
+    for (const n of nests){
+      if (obj[n] && typeof obj[n]==="object" && Object.prototype.hasOwnProperty.call(obj[n], key)) return obj[n][key];
+    }
+    return undefined;
+  }
   function ptPick(row, keys){
     for (const k of keys){
       const v = (row && row[k] != null) ? row[k] : ptDeepGet(row, k);
