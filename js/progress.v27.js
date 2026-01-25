@@ -1250,6 +1250,8 @@ function ptApplyBackendRowToUI(row) {
 
   const procKey = String(ptPick(row, ["process_name","process","processName","rack_type","rackType","type"]) || "").trim();
   if (!procKey) return;
+  const statusName = ptPick(row, ["status_name","status","statusName","current_status_name"]);
+
 
   // ✅ ВАЖНО: для rack mapping используем suNumOnly, а не "SU79"
   const baseRackId = ptRackIdFromRow(row, suNumOnly);
@@ -1266,9 +1268,7 @@ if (rackName) {
 // убираем дубликаты
 const uniqueRackIds = Array.from(new Set(rackIds));
 
-console.log("[RACKIDS FINAL]", uniqueRackIds);
-
-  console.log("[RACKIDS]", suNumOnly, "=>", suKeyEff, rackIds);
+  console.log("[RACKIDS]", suNumOnly, "=>", suKeyEff, uniqueRackIds);
 
   // ... дальше твой код без изменений, но setCodeFromBackend/setStoredNote должны использовать suKeyEff (UI key)
 
@@ -1281,11 +1281,14 @@ for (const rid of uniqueRackIds) {
   PT_DB.runIndex.set(`${rid}|${procKey}`, { runId, processId: procId });
   PT_DB.runIndex.set(`${norm(rid)}|${norm(procKey)}`, { runId, processId: procId });
 }
+if (runId === 469) {
+  console.log("[RUN469 APPLY]", { suKeyRaw, suNumOnly, suKeyEff, procKey, statusName, uniqueRackIds });
+}
 
 if (statusName != null) {
   const code = ptFindCodeByLabel(procKey, statusName);
   if (code != null) {
-    for (const rid of runiqueRackIds) {
+    for (const rid of uniqueRackIds) {
       setCodeFromBackend(suKeyEff, rid, procKey, code);
     }
   }
