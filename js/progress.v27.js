@@ -1241,7 +1241,10 @@ console.log("[APPLY]", suKeyRaw, "->", suKeyEff, "runId", runId);
     const typeEff = String(ptPick(row, ["rack_type","rackType","type"]) || "").trim();
     if (luEff && rowEff && typeEff) suKeyEff = `${luEff}_ROW${rowEff}_${typeEff.replace(/\s+/g, "_").toUpperCase()}`;
   }
-  const procKey = String(ptPick(row, ["rack_type","rackType","type","process_name","process","processName"]) || "").trim();
+  const procKey = String(ptPick(row, ["process_name","process","processName","rack_type","rackType","type"]) || "").trim();
+
+  console.log("[PROC]", procKey, "status=", statusName);
+
   // PT_DBTRUTH: allow rows without su_key (NA/NB racks). Only procKey is required.
   if (!procKey) return;
 
