@@ -1492,6 +1492,38 @@ const runId = (typeof runInfo === "object" && runInfo) ? Number(runInfo.runId) :
       note: (noteText ? String(noteText).trim() : null)
     });
 
+    // ✅ FAST PATH: backend already returns the source of truth
+if (resp && resp.updated) {
+  try {
+    // 1) применяем "истину" от backend сразу в UI/индекс
+    ptApplyBackendRowToUI(resp.updated);
+    PT_DB.loaded = true;
+
+    // 2) 🔒 фиксируем runId в runIndex, чтобы следующий клик НЕ искал его снова
+    const updated = resp.updated;
+    const locked = {
+      runId: Number(updated.rack_process_run_id),
+      processId: Number(updated.process_id || processId),
+      su_key: String(updated.su_key || suStr),
+      rack_name: String(updated.rack_name || rackStr),
+      process_name: String(updated.process_name || procStr),
+    };
+
+    // ключи, которые ты используешь в начале ptPersistToBackend (1377-1381)
+    PT_DB.runIndex.set(`${suStr}|${rackStr}|${procStr}`, locked);
+    PT_DB.runIndex.set(`${rackStr}|${procStr}`, locked);
+    PT_DB.runIndex.set(`${suNorm}|${rackNorm}|${procNorm}`, locked);
+    PT_DB.runIndex.set(`${rackNorm}|${procNorm}`, locked);
+  } catch (e) {}
+
+  // ❗всё: без дополнительных GET /api/runs
+  return resp;
+}
+
+// ✅ если updated нет — оставляем как было (fallback)
+return resp;
+
+
     // If backend returns the updated row, apply it to UI state so refresh isn't required.
     try {
       const updated = (resp && resp.updated) ? resp.updated : null;
