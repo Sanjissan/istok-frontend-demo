@@ -1402,6 +1402,21 @@ if (statusName != null) {
     }
   }
 
+  function ptRackNameForDB(rackStr) {
+  let s = String(rackStr || "").trim();
+
+  // если в UI "LPC • ROCE T1" — берём только левую часть
+  s = s.split("•")[0].trim();
+
+  // убираем суффиксы SU:  "LPC-SU79" / "LPC_SU79" / "LPC SU79"
+  s = s.replace(/[-_\s]*SU\s*\d+$/i, "");
+
+  // иногда прилетает "@..." — тоже выкидываем
+  s = s.split("@")[0].trim();
+
+  return s;
+}
+
   async function ptPersistToBackend(suKey, rackId, procKey, code, noteText){
     if (!window.PT_REST) throw new Error("API is not available");
 
@@ -1421,6 +1436,8 @@ if (statusName != null) {
       PT_DB.runIndex.get(`${rackNorm}|${procNorm}`);
 
     // 2) Try alternate rack id formats for SU-based racks (GPU-SUXX etc.)
+    console.log("[SAVE DEBUG] runInfo=", runInfo, "su=", suStr, "rackStr=", rackStr, "proc=", procStr);
+
     if (!runInfo) {
       const suNumFromSuKey = suStr.replace(/^SU\s*/i, "").trim();
       const suNumFromRackId = (rackStr.match(/SU\s*([0-9]+)/i) || [])[1] || "";
@@ -1494,7 +1511,7 @@ if (statusName != null) {
 
       const upsertPayload = {
         su_key: Number(suStr),
-        rack_name: String(rackStr).split("@")[0],
+        rack_name: ptRackNameForDB(rackStr),
         process_id: processIdGuess || undefined,
         process_name: processIdGuess ? undefined : procStr,
         status_id: status_id_tmp,
