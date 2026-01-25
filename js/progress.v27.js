@@ -1219,14 +1219,22 @@ function ptCandidateRackIdsForRow(suKey, row, baseRackId) {
   if (!out.length && baseRackId) out.push(baseRackId);
   return out;
 }
+function suKeyToUI(x) {
+  const s = String(x || "").trim();
+  const m = s.match(/(\d+)/);
+  return m ? ("SU" + m[1]) : s;
+}
 
 function ptApplyBackendRowToUI(row) {
   const runId = Number(ptPick(row, ["rack_process_run_id","run_id","id"]) || 0);
   if (!runId) return;
   const suKeyRaw = String(ptPick(row, ["su_key","su","suKey","su_id","su_number"]) || "").trim();
-  const suKey = suNumFromKey(suKeyRaw) || suKeyRaw;
-  // PT_DBTRUTH: derive a stable key for non-SU rows (NA/NB etc.)
-  let suKeyEff = suKey;
+const suNum = suNumFromKey(suKeyRaw) || suKeyRaw;   
+const suKey = suKeyToUI(suNum);                   
+let suKeyEff = suKey;
+
+console.log("[APPLY]", suKeyRaw, "->", suKeyEff, "runId", runId);
+
   if (!suKeyEff) {
     const luEff = String(ptPick(row, ["lu","LU","lu_key","luKey"]) || "").trim();
     const rowEff = String(ptPick(row, ["rack_row","row","rackRow"]) || "").trim();
