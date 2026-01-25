@@ -1243,32 +1243,35 @@ console.log("[APPLY]", suKeyRaw, "->", suKeyEff, "runId", runId);
   }
   const procKey = String(ptPick(row, ["process_name","process","processName","rack_type","rackType","type"]) || "").trim();
 
-  console.log("[PROC]", procKey, "status=", statusName);
+// PT_DBTRUTH: allow rows without su_key (NA/NB racks). Only procKey is required.
+if (!procKey) return;
 
-  // PT_DBTRUTH: allow rows without su_key (NA/NB racks). Only procKey is required.
-  if (!procKey) return;
+// ✅ ВОТ СЮДА ПЕРЕНЕСИ statusName (выше console.log)
+const statusName = ptPick(row, ["status_name","status","statusName","current_status_name"]);
 
-  const baseRackId = ptRackIdFromRow(row, suKeyEff);
-  const rackIds = ptCandidateRackIdsForRow(suKeyEff, row, baseRackId);
+// ✅ теперь лог будет работать
+console.log("[PROC]", procKey, "status=", statusName);
 
-  const procId = PT_DB.procDescToId.get(norm(procKey)) || Number(ptPick(row, ["process_id","processId"])) || null;
+const baseRackId = ptRackIdFromRow(row, suKeyEff);
+const rackIds = ptCandidateRackIdsForRow(suKeyEff, row, baseRackId);
 
-  for (const rid of rackIds) {
-    // IMPORTANT: use SU-scoped keys only to avoid collisions across different SUs
-    PT_DB.runIndex.set(`${suKeyEff}|${rid}|${procKey}`, { runId, processId: procId });
-    PT_DB.runIndex.set(`${norm(suKeyEff)}|${norm(rid)}|${norm(procKey)}`, { runId, processId: procId });
-    // PT_DBTRUTH: also index without suKey so UI can resolve even if it uses LU/ROW keys
-    PT_DB.runIndex.set(`${rid}|${procKey}`, { runId, processId: procId });
-    PT_DB.runIndex.set(`${norm(rid)}|${norm(procKey)}`, { runId, processId: procId });
-  }const statusName = ptPick(row, ["status_name","status","statusName","current_status_name"]);
-  if (statusName != null) {
-    const code = ptFindCodeByLabel(procKey, statusName);
-    if (code != null) {
-      for (const rid of rackIds) {
-        setCodeFromBackend(suKeyEff, rid, procKey, code);
-      }
+const procId = PT_DB.procDescToId.get(norm(procKey)) || Number(ptPick(row, ["process_id","processId"])) || null;
+
+for (const rid of rackIds) {
+  PT_DB.runIndex.set(`${suKeyEff}|${rid}|${procKey}`, { runId, processId: procId });
+  PT_DB.runIndex.set(`${norm(suKeyEff)}|${norm(rid)}|${norm(procKey)}`, { runId, processId: procId });
+  PT_DB.runIndex.set(`${rid}|${procKey}`, { runId, processId: procId });
+  PT_DB.runIndex.set(`${norm(rid)}|${norm(procKey)}`, { runId, processId: procId });
+}
+
+if (statusName != null) {
+  const code = ptFindCodeByLabel(procKey, statusName);
+  if (code != null) {
+    for (const rid of rackIds) {
+      setCodeFromBackend(suKeyEff, rid, procKey, code);
     }
   }
+}
 
   const note = ptPick(row, ["note","notes","comment"]);
   if (note != null && String(note).trim() !== "") {
