@@ -1226,6 +1226,8 @@ function suKeyToUI(x) {
 }
 
 function ptApplyBackendRowToUI(row) {
+  console.log("[PT] ptApplyBackendRowToUI called", row && row.rack_process_run_id);
+
   const runId = Number(ptPick(row, ["rack_process_run_id","run_id","id"]) || 0);
   if (!runId) return;
 

@@ -67,12 +67,12 @@
 
   // ===== API =====
 
-  function getRuns(limit = 1000) {
+  function getRuns(limit = 5000) {
     // _=Date.now() на всякий случай, если где-то сидит странный proxy cache
     return fetchJSON(`/api/runs?limit=${Number(limit) || 1000}&_=${Date.now()}`);
   }
 
-  function getRackProcessStatus(limit = 5000) {
+  function getRackProcessStatus(limit = 20000) {
     // IMPORTANT: /api/views/v_rack_process_status LIMIT 200 без ORDER BY может не включать нужные строки
     return getRuns(limit);
   }
