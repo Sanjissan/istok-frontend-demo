@@ -1228,32 +1228,35 @@ function suKeyToUI(x) {
 function ptApplyBackendRowToUI(row) {
   const runId = Number(ptPick(row, ["rack_process_run_id","run_id","id"]) || 0);
   if (!runId) return;
+
   const suKeyRaw = String(ptPick(row, ["su_key","su","suKey","su_id","su_number"]) || "").trim();
-const suNum = suNumFromKey(suKeyRaw) || suKeyRaw;   
-const suKey = suKeyToUI(suNum);                   
-let suKeyEff = suKey;
 
-console.log("[APPLY]", suKeyRaw, "->", suKeyEff, "runId", runId);
+  // 1) "79" — для rack mapping
+  const suNumOnly = String(suNumFromKey(suKeyRaw) || suKeyRaw).trim();
 
+  // 2) "SU79" — для UI storage keys
+  const suKeyUI = suKeyToUI(suNumOnly);
+
+  // PT_DBTRUTH: stable key for non-SU rows (NA/NB etc.)
+  let suKeyEff = suKeyUI;
   if (!suKeyEff) {
     const luEff = String(ptPick(row, ["lu","LU","lu_key","luKey"]) || "").trim();
     const rowEff = String(ptPick(row, ["rack_row","row","rackRow"]) || "").trim();
     const typeEff = String(ptPick(row, ["rack_type","rackType","type"]) || "").trim();
     if (luEff && rowEff && typeEff) suKeyEff = `${luEff}_ROW${rowEff}_${typeEff.replace(/\s+/g, "_").toUpperCase()}`;
   }
+
   const procKey = String(ptPick(row, ["process_name","process","processName","rack_type","rackType","type"]) || "").trim();
+  if (!procKey) return;
 
-// PT_DBTRUTH: allow rows without su_key (NA/NB racks). Only procKey is required.
-if (!procKey) return;
+  // ✅ ВАЖНО: для rack mapping используем suNumOnly, а не "SU79"
+  const baseRackId = ptRackIdFromRow(row, suNumOnly);
+  const rackIds = ptCandidateRackIdsForRow(suNumOnly, row, baseRackId);
 
-// ✅ ВОТ СЮДА ПЕРЕНЕСИ statusName (выше console.log)
-const statusName = ptPick(row, ["status_name","status","statusName","current_status_name"]);
+  console.log("[RACKIDS]", suNumOnly, "=>", suKeyEff, rackIds);
 
-// ✅ теперь лог будет работать
-console.log("[PROC]", procKey, "status=", statusName);
+  // ... дальше твой код без изменений, но setCodeFromBackend/setStoredNote должны использовать suKeyEff (UI key)
 
-const baseRackId = ptRackIdFromRow(row, suKeyEff);
-const rackIds = ptCandidateRackIdsForRow(suKeyEff, row, baseRackId);
 
 const procId = PT_DB.procDescToId.get(norm(procKey)) || Number(ptPick(row, ["process_id","processId"])) || null;
 
