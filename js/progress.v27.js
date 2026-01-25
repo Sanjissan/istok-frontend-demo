@@ -1382,8 +1382,13 @@ if (statusName != null) {
       // The view endpoint may be limited and miss the row we need.
       const rows = await window.PT_REST.fetchJSON("/api/runs?limit=20000&_=" + Date.now());
       for (const row of ptNormalizeRows(rows)) {
-        ptApplyBackendRowToUI(row);
-      }
+  try {
+    ptApplyBackendRowToUI(row);
+  } catch (e) {
+    console.warn("[BOOTSTRAP APPLY ERROR]", e, row);
+  }
+}
+
       PT_DB.loaded = true;
     } catch {
       // fallback to the view (may be limited)
