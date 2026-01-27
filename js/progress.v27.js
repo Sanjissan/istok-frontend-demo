@@ -1312,6 +1312,8 @@ if (statusName != null) {
   }
 }
 
+const noteText = String(ptPick(row, ["note","notes","comment"]) || "").trim();
+
 const noteFn =
   (typeof window.setStoredNote === "function" ? window.setStoredNote : null) ||
   (typeof setStoredNote === "function" ? setStoredNote : null);
