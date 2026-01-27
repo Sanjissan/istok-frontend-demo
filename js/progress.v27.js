@@ -1403,7 +1403,14 @@ if (note != null && String(note).trim() !== "") {
       const rows = await window.PT_REST.fetchJSON("/api/runs?limit=20000&_=" + Date.now());
 console.log("[BOOT] /api/runs isArray=", Array.isArray(rows), "len=", rows && rows.length, "sample=", Array.isArray(rows) ? rows[0] : rows);
 
-const normRows = ptNormalizeRows(rows);
+const normRows =
+  Array.isArray(rows) ? rows :
+  (rows && typeof rows === "object" && Array.isArray(rows.rows)) ? rows.rows :
+  (rows && typeof rows === "object" && Array.isArray(rows.data)) ? rows.data :
+  (rows && typeof rows === "object" && Array.isArray(rows.result)) ? rows.result :
+  (rows && typeof rows === "object" && Array.isArray(rows.items)) ? rows.items :
+  [];
+
 console.log("[BOOT] normalized len=", normRows && normRows.length, "sample=", normRows && normRows[0]);
 
 for (const row of normRows) {
@@ -1418,15 +1425,37 @@ console.log("[BOOT] after apply runIndex.size=", window.PT_DB && window.PT_DB.ru
 
 
       PT_DB.loaded = true;
-    } catch {
+    } catch (e) {
+        console.warn("[BOOT] bootstrap failed:", e);
+
       // fallback to the view (may be limited)
       try {
-        const rows2 = await window.PT_REST.apiGetRackProcessStatus();
-        for (const row of ptNormalizeRows(rows2)) {
-          ptApplyBackendRowToUI(row);
-        }
-        PT_DB.loaded = true;
-      } catch {}
+  const rows2 = await window.PT_REST.apiGetRackProcessStatus();
+
+  const normRows2 =
+    Array.isArray(rows2) ? rows2 :
+    (rows2 && typeof rows2 === "object" && Array.isArray(rows2.rows)) ? rows2.rows :
+    (rows2 && typeof rows2 === "object" && Array.isArray(rows2.data)) ? rows2.data :
+    (rows2 && typeof rows2 === "object" && Array.isArray(rows2.result)) ? rows2.result :
+    (rows2 && typeof rows2 === "object" && Array.isArray(rows2.items)) ? rows2.items :
+    [];
+
+  console.log("[BOOT] view normalized len=", normRows2.length, "sample=", normRows2[0]);
+
+  for (const row of normRows2) {
+    try {
+      ptApplyBackendRowToUI(row);
+    } catch (e2) {
+      console.warn("[BOOTSTRAP APPLY ERROR view]", e2, row);
+    }
+  }
+
+  console.log("[BOOT] after view apply runIndex.size=", window.PT_DB?.runIndex?.size);
+  PT_DB.loaded = true;
+} catch (e2) {
+  console.warn("[BOOT] view fallback failed:", e2);
+}
+
     }
   }
 
