@@ -2292,14 +2292,35 @@ return resp;
     }
 
     function loadNoteForSelection(){
-      const targetProc = getTargetProc();
-      if (!noteEl) return;
-      if (!targetProc) {
-        noteEl.value = "";
-        return;
-      }
-      noteEl.value = getStoredNote(selected.suKey, selected.rackId, targetProc);
+  try {
+    if (!noteEl) return;
+
+    // если ничего не выбрано — очищаем
+    if (!selected || !selected.suKey || !selected.rackId) {
+      noteEl.value = "";
+      return;
     }
+
+    const targetProc = getTargetProc();
+
+    // нет процесса / ALL — очищаем
+    if (!targetProc || targetProc === "ALL") {
+      noteEl.value = "";
+      return;
+    }
+
+    const v = (typeof getStoredNote === "function")
+      ? (getStoredNote(selected.suKey, selected.rackId, targetProc) || "")
+      : "";
+
+    if (String(noteEl.value || "") !== v) {
+      noteEl.value = v;
+    }
+  } catch (e) {
+    console.warn("loadNoteForSelection failed:", e);
+  }
+}
+
 
     const problemsOnly = document.getElementById("problemsOnly");
     const qcOnly = document.getElementById("qcOnly");
