@@ -2309,9 +2309,31 @@ return resp;
       return;
     }
 
-    const v = (typeof getStoredNote === "function")
-      ? (getStoredNote(selected.suKey, selected.rackId, targetProc) || "")
-      : "";
+    const v = (() => {
+  if (typeof getStoredNote !== "function") return "";
+
+  const suRaw = String(selected.suKey || "").trim();
+  const suNum = String(suNumFromKey(suRaw) || suRaw).replace(/^SU\s*/i, "").trim(); // "79"
+  const suUI  = suKeyToUI(suNum); // "SU79"
+
+  const rackRaw = String(selected.rackId || "").trim();
+  // base rack для БД/памяти (убираем " • ROCE T1", "-SU79" и т.п.)
+  const rackBase =
+    (typeof ptRackNameForDB === "function") ? ptRackNameForDB(rackRaw)
+    : rackRaw.split("•")[0].trim().replace(/[-_\s]*SU\s*\d+$/i, "");
+
+  const racks = Array.from(new Set([rackRaw, rackBase, `${rackBase}-SU${suNum}`].filter(Boolean)));
+  const sus   = Array.from(new Set([suRaw, suNum, suUI].filter(Boolean)));
+
+  for (const s of sus) {
+    for (const r of racks) {
+      const val = getStoredNote(s, r, targetProc);
+      if (val != null && String(val).trim() !== "") return String(val);
+    }
+  }
+  return "";
+})();
+
 
     if (String(noteEl.value || "") !== v) {
       noteEl.value = v;
