@@ -1312,14 +1312,18 @@ if (statusName != null) {
   }
 }
 
-const note = ptPick(row, ["note","notes","comment"]);
-if (note != null && String(note).trim() !== "") {
+const noteFn =
+  (typeof window.setStoredNote === "function" ? window.setStoredNote : null) ||
+  (typeof setStoredNote === "function" ? setStoredNote : null);
+
+if (note != null && String(note).trim() !== "" && noteFn) {
   for (const rid of uniqueRackIds) {
     for (const suK of suKeysToWrite) {
-      setStoredNote(suK, rid, procKey, String(note).trim());
+      noteFn(suK, rid, procKey, String(note).trim());
     }
   }
 }
+
 }
 
 
