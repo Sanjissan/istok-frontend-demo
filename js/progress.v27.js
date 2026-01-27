@@ -1401,13 +1401,21 @@ if (note != null && String(note).trim() !== "") {
       // Prefer the /api/runs endpoint as source of truth: it includes all runs and is ordered.
       // The view endpoint may be limited and miss the row we need.
       const rows = await window.PT_REST.fetchJSON("/api/runs?limit=20000&_=" + Date.now());
-      for (const row of ptNormalizeRows(rows)) {
+console.log("[BOOT] /api/runs isArray=", Array.isArray(rows), "len=", rows && rows.length, "sample=", Array.isArray(rows) ? rows[0] : rows);
+
+const normRows = ptNormalizeRows(rows);
+console.log("[BOOT] normalized len=", normRows && normRows.length, "sample=", normRows && normRows[0]);
+
+for (const row of normRows) {
   try {
     ptApplyBackendRowToUI(row);
   } catch (e) {
     console.warn("[BOOTSTRAP APPLY ERROR]", e, row);
   }
 }
+
+console.log("[BOOT] after apply runIndex.size=", window.PT_DB && window.PT_DB.runIndex && window.PT_DB.runIndex.size);
+
 
       PT_DB.loaded = true;
     } catch {
