@@ -2295,6 +2295,7 @@ return resp;
   try {
     if (!noteEl) return;
 
+    // если ничего не выбрано — очищаем
     if (!selected || !selected.suKey || !selected.rackId) {
       noteEl.value = "";
       return;
@@ -2306,35 +2307,89 @@ return resp;
       return;
     }
 
-    const v = (() => {
-      if (typeof getStoredNote !== "function") return "";
+    const getter =
+      (typeof window.getStoredNote === "function" ? window.getStoredNote : null) ||
+      (typeof getStoredNote === "function" ? getStoredNote : null);
 
-      const suRaw = String(selected.suKey || "").trim();
-      const suNum = String(suNumFromKey(suRaw) || suRaw).replace(/^SU\s*/i, "").trim();
-      const suUI  = (typeof suKeyToUI === "function") ? suKeyToUI(suNum) : ("SU" + suNum);
+    const suRaw = String(selected.suKey || "").trim();
+    const suNum = String(suNumFromKey(suRaw) || suRaw).replace(/^SU\s*/i, "").trim(); // "79"
+    const suUI  = (typeof suKeyToUI === "function") ? suKeyToUI(suNum) : ("SU" + suNum);
 
-      const rackRaw = String(selected.rackId || "").trim();
-      const rackBase =
-        (typeof ptRackNameForDB === "function") ? ptRackNameForDB(rackRaw)
-        : rackRaw.split("•")[0].trim().replace(/[-_\s]*SU\s*\d+$/i, "");
+    const rackRaw = String(selected.rackId || "").trim(); // часто "LPC-SU79"
+    const rackBase =
+      (typeof ptRackNameForDB === "function") ? ptRackNameForDB(rackRaw)
+      : rackRaw.split("•")[0].trim().replace(/[-_\s]*SU\s*\d+$/i, "");
 
-      const racks = Array.from(new Set([rackRaw, rackBase, rackBase ? `${rackBase}-SU${suNum}` : null].filter(Boolean)));
-      const sus   = Array.from(new Set([suRaw, suNum, suUI].filter(Boolean)));
+    const racks = Array.from(new Set([
+      rackRaw,
+      rackBase,
+      (rackBase ? `${rackBase}-SU${suNum}` : null),
+    ].filter(Boolean)));
 
+    const sus = Array.from(new Set([suRaw, suNum, suUI].filter(Boolean)));
+
+    // 1) try local cache first
+    let v = "";
+    if (getter) {
       for (const s of sus) {
         for (const r of racks) {
-          const val = getStoredNote(s, r, targetProc);
-          if (val != null && String(val).trim() !== "") return String(val);
+          const val = getter(s, r, targetProc);
+          if (val != null && String(val).trim() !== "") {
+            v = String(val);
+            break;
+          }
         }
+        if (v) break;
       }
-      return "";
-    })();
+    }
 
+    // apply what we have immediately
     if (String(noteEl.value || "") !== v) noteEl.value = v;
+
+    // 2) fallback to backend truth if empty
+    if (!v && window.PT_REST && typeof window.PT_REST.fetchJSON === "function") {
+      const key = `${suNum}|${rackBase}|${targetProc}`;
+      // анти-дребезг: не спамим lookup при каждом ререндере
+      if (window.__PT_NOTE_LOOKUP_INFLIGHT__ === key) return;
+      window.__PT_NOTE_LOOKUP_INFLIGHT__ = key;
+
+      const url =
+        `/api/runs/lookup?su_key=${encodeURIComponent(suNum)}` +
+        `&rack_name=${encodeURIComponent(rackBase)}` +
+        `&process_name=${encodeURIComponent(targetProc)}` +
+        `&_=${Date.now()}`;
+
+      window.PT_REST.fetchJSON(url)
+        .then(row => {
+          const backendNote = row && row.note != null ? String(row.note).trim() : "";
+          if (backendNote) {
+            // положим в локальный кэш, если есть setter
+            const setter =
+              (typeof window.setStoredNote === "function" ? window.setStoredNote : null) ||
+              (typeof setStoredNote === "function" ? setStoredNote : null);
+
+            if (setter) {
+              // кладем под несколько ключей, чтобы UI точно нашёл
+              for (const s of sus) for (const r of racks) setter(s, r, targetProc, backendNote);
+            }
+
+            // обновим textarea если пользователь не печатает прямо сейчас
+            const isFocused = document.activeElement === noteEl;
+            if (!isFocused || !String(noteEl.value || "").trim()) {
+              noteEl.value = backendNote;
+            }
+          }
+        })
+        .catch(()=>{})
+        .finally(() => {
+          if (window.__PT_NOTE_LOOKUP_INFLIGHT__ === key) window.__PT_NOTE_LOOKUP_INFLIGHT__ = null;
+        });
+    }
   } catch (e) {
     console.warn("loadNoteForSelection failed:", e);
   }
 }
+
 
 
 
