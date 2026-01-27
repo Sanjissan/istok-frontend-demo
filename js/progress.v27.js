@@ -1000,6 +1000,7 @@ const CELL_RACKS = {
   
 
   const PT_DB = { statusKeyToId: new Map(), procDescToId: new Map(), runIndex: new Map(), loaded: false };
+    window.PT_DB = PT_DB;
 
   function ptDeepGet(obj, key){
     if (!obj || typeof obj !== "object") return undefined;
