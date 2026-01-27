@@ -1318,13 +1318,14 @@ const noteFn =
   (typeof window.setStoredNote === "function" ? window.setStoredNote : null) ||
   (typeof setStoredNote === "function" ? setStoredNote : null);
 
-if (note != null && String(note).trim() !== "" && noteFn) {
+if (noteText && noteFn) {
   for (const rid of uniqueRackIds) {
     for (const suK of suKeysToWrite) {
-      noteFn(suK, rid, procKey, String(note).trim());
+      noteFn(suK, rid, procKey, noteText);
     }
   }
 }
+
 
 }
 
