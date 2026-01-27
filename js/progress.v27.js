@@ -1002,6 +1002,30 @@ const CELL_RACKS = {
   const PT_DB = { statusKeyToId: new Map(), procDescToId: new Map(), runIndex: new Map(), loaded: false };
     window.PT_DB = PT_DB;
 
+  function ptNoteKey(suKey, rackId, procKey) {
+  return `pt_note|${String(suKey)}|${String(rackId)}|${String(procKey)}`;
+}
+
+function setStoredNote(suKey, rackId, procKey, text) {
+  try {
+    const v = String(text || "").trim();
+    localStorage.setItem(ptNoteKey(suKey, rackId, procKey), v);
+  } catch {}
+}
+
+function getStoredNote(suKey, rackId, procKey) {
+  try {
+    return localStorage.getItem(ptNoteKey(suKey, rackId, procKey)) || "";
+  } catch {
+    return "";
+  }
+}
+
+// чтобы можно было проверять из консоли
+window.setStoredNote = setStoredNote;
+window.getStoredNote = getStoredNote;
+
+
   function ptDeepGet(obj, key){
     if (!obj || typeof obj !== "object") return undefined;
     if (Object.prototype.hasOwnProperty.call(obj, key)) return obj[key];
