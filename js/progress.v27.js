@@ -1234,20 +1234,28 @@ function ptApplyBackendRowToUI(row) {
 
   const suKeyRaw = String(ptPick(row, ["su_key","su","suKey","su_id","su_number"]) || "").trim();
 
-  // 1) "79" — для rack mapping
-  const suNumOnly = String(suNumFromKey(suKeyRaw) || suKeyRaw).trim();
+  // 1) "79" — для rack mapping / backend
+const suNumOnly = String(suNumFromKey(suKeyRaw) || suKeyRaw).trim();
 
-  // 2) "SU79" — для UI storage keys
-  const suKeyUI = suKeyToUI(suNumOnly);
+// 2) "SU79" — для UI storage keys
+const suKeyInternal = suNumOnly;      // "79"
+const suKeyUI = suKeyToUI(suNumOnly); // "SU79"
 
-  // PT_DBTRUTH: stable key for non-SU rows (NA/NB etc.)
-  let suKeyEff = suKeyUI;
-  if (!suKeyEff) {
-    const luEff = String(ptPick(row, ["lu","LU","lu_key","luKey"]) || "").trim();
-    const rowEff = String(ptPick(row, ["rack_row","row","rackRow"]) || "").trim();
-    const typeEff = String(ptPick(row, ["rack_type","rackType","type"]) || "").trim();
-    if (luEff && rowEff && typeEff) suKeyEff = `${luEff}_ROW${rowEff}_${typeEff.replace(/\s+/g, "_").toUpperCase()}`;
+// будем писать/индексировать под обоими ключами
+const suKeysToWrite = Array.from(new Set([suKeyInternal, suKeyUI].filter(Boolean)));
+
+// suKeyEff оставляем ТОЛЬКО как "fallback key" для non-SU строк (NA/NB),
+// иначе по умолчанию используем внутренний "79"
+let suKeyEff = suKeyInternal;
+if (!suKeyEff) {
+  const luEff = String(ptPick(row, ["lu","LU","lu_key","luKey"]) || "").trim();
+  const rowEff = String(ptPick(row, ["rack_row","row","rackRow"]) || "").trim();
+  const typeEff = String(ptPick(row, ["rack_type","rackType","type"]) || "").trim();
+  if (luEff && rowEff && typeEff) {
+    suKeyEff = `${luEff}_ROW${rowEff}_${typeEff.replace(/\s+/g, "_").toUpperCase()}`;
   }
+}
+
 
   const procKey = String(ptPick(row, ["process_name","process","processName","rack_type","rackType","type"]) || "").trim();
   if (!procKey) return;
@@ -1277,11 +1285,17 @@ const uniqueRackIds = Array.from(new Set(rackIds));
 const procId = PT_DB.procDescToId.get(norm(procKey)) || Number(ptPick(row, ["process_id","processId"])) || null;
 
 for (const rid of uniqueRackIds) {
-  PT_DB.runIndex.set(`${suKeyEff}|${rid}|${procKey}`, { runId, processId: procId });
-  PT_DB.runIndex.set(`${norm(suKeyEff)}|${norm(rid)}|${norm(procKey)}`, { runId, processId: procId });
+  // ключи с SU (и "79", и "SU79")
+  for (const suK of suKeysToWrite) {
+    PT_DB.runIndex.set(`${suK}|${rid}|${procKey}`, { runId, processId: procId });
+    PT_DB.runIndex.set(`${norm(suK)}|${norm(rid)}|${norm(procKey)}`, { runId, processId: procId });
+  }
+
+  // ключи без SU (fallback для мест где UI ищет только rack|proc)
   PT_DB.runIndex.set(`${rid}|${procKey}`, { runId, processId: procId });
   PT_DB.runIndex.set(`${norm(rid)}|${norm(procKey)}`, { runId, processId: procId });
 }
+
 if (runId === 469) {
   console.log("[RUN469 APPLY]", { suKeyRaw, suNumOnly, suKeyEff, procKey, statusName, uniqueRackIds });
 }
@@ -1290,17 +1304,21 @@ if (statusName != null) {
   const code = ptFindCodeByLabel(procKey, statusName);
   if (code != null) {
     for (const rid of uniqueRackIds) {
-      setCodeFromBackend(suKeyEff, rid, procKey, code);
+      for (const suK of suKeysToWrite) {
+        setCodeFromBackend(suK, rid, procKey, code);
+      }
     }
   }
 }
 
-  const note = ptPick(row, ["note","notes","comment"]);
-  if (note != null && String(note).trim() !== "") {
-    for (const rid of uniqueRackIds) {
-      setStoredNote(suKeyEff, rid, procKey, String(note).trim());
+const note = ptPick(row, ["note","notes","comment"]);
+if (note != null && String(note).trim() !== "") {
+  for (const rid of uniqueRackIds) {
+    for (const suK of suKeysToWrite) {
+      setStoredNote(suK, rid, procKey, String(note).trim());
     }
   }
+}
 }
 
 
