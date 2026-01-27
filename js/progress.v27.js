@@ -1418,14 +1418,42 @@ if (statusName != null) {
   return s;
 }
 
+  function ptRackNameForBackend(rackId) {
+  // "LPC-SU79" -> "LPC"
+  // "LPC • ROCE T1" -> "LPC"
+  // "NB 27" -> "NB27" (если вдруг такое прилетит)
+  let s = String(rackId || "").trim();
+
+  // отрезаем "@..."
+  s = s.split("@")[0].trim();
+
+  // отрезаем " • TYPE"
+  s = s.replace(/\s*•\s*.*$/, "").trim();
+
+  // убираем суффикс "-SU79" / "SU79"
+  s = s.replace(/-?\s*SU\s*\d+$/i, "").trim();
+
+  // убираем пробелы внутри
+  s = s.replace(/\s+/g, "");
+
+  return s;
+}
+
+
   async function ptPersistToBackend(suKey, rackId, procKey, code, noteText){
     if (!window.PT_REST) throw new Error("API is not available");
 
     const suStrRaw = String(suKey || "").trim();
-    const suStr = suNumFromKey(suStrRaw) || suStrRaw;
+    const suNumOnly =
+  String(suNumFromKey(suStrRaw) || suStrRaw)
+    .replace(/^SU\s*/i, "")
+    .trim();
+    const suStr = suNumOnly || suStrRaw;
     const rackStr = String(rackId || "").trim();
     const procStr = String(procKey || "").trim();
+    const rackBase = ptRackNameForBackend(rackStr);
     const suNorm = norm(suStr);
+    console.log("[SU FIX]", { suStrRaw, suNumOnly, suStr, suNorm });
     const rackNorm = norm(rackStr);
     const procNorm = norm(procStr);
 
@@ -1470,6 +1498,43 @@ if (statusName != null) {
     // 4) Guaranteed fallback: fetch latest runs from backend and match by su_key + process_name
     //    NOTE: PT_REST.apiGetRackProcessStatus() uses the VIEW endpoint and may not include everything we need for writes.
     //    For writes we use /api/runs which contains rack_process_run_id reliably.
+    // 4) Preferred lookup: ask backend for the exact run (fast + deterministic)
+if (!runInfo) {
+  try {
+    const url =
+      "/api/runs/lookup" +
+      "?su_key=" + encodeURIComponent(String(suNumOnly || "").trim()) +
+      "&rack_name=" + encodeURIComponent(String(rackBase || "").trim()) +
+      "&process_name=" + encodeURIComponent(String(procStr || "").trim());
+
+    const found = await window.PT_REST.fetchJSON(url);
+    const foundRunId = Number(found?.rack_process_run_id || found?.run_id || found?.id || 0);
+
+    if (foundRunId) {
+      runInfo = {
+        runId: foundRunId,
+        processId: Number(found?.process_id || 0),
+        su_key: String(found?.su_key || suNumOnly || ""),
+        rack_name: String(found?.rack_name || rackBase || ""),
+        process_name: String(found?.process_name || procStr || "")
+      };
+
+      // Seed index so next save is instant
+      try {
+        PT_DB.runIndex.set(`${suStr}|${rackStr}|${procStr}`, runInfo);
+        PT_DB.runIndex.set(`${suStr}|${rackBase}|${procStr}`, runInfo);
+        PT_DB.runIndex.set(`${rackStr}|${procStr}`, runInfo);
+        PT_DB.runIndex.set(`${rackBase}|${procStr}`, runInfo);
+      } catch {}
+
+      // Apply immediately (so UI reflects backend without refresh)
+      try { ptApplyBackendRowToUI(found); } catch {}
+    }
+  } catch (e) {
+    // ignore (404 not found пока нет строки — норм)
+  }
+}
+
     if (!runInfo) {
       try {
         const rows = await window.PT_REST.fetchJSON("/api/runs?limit=20000&_=" + Date.now());
@@ -1477,6 +1542,7 @@ if (statusName != null) {
         if (Array.isArray(rows) && suNum) {
           const match = rows.find(r =>
             String(r.su_key || "").trim() === String(suNum) &&
+            norm(String(r.rack_name || "").trim()) === norm(String(rackBase || "").trim()) &&
             norm(String(r.process_name || "").trim()) === procNorm
           );
           if (match) {
@@ -1491,6 +1557,9 @@ if (statusName != null) {
             // Seed index with a few helpful keys so next save is fast
             try {
               PT_DB.runIndex.set(`${suNum}|${rackStr}|${procStr}`, runInfo);
+              PT_DB.runIndex.set(`${suStr}|${rackStr}|${procStr}`, runInfo);
+              PT_DB.runIndex.set(`${suStr}|${rackBase}|${procStr}`, runInfo);
+
 
               const baseRack = String(match.rack_name || "").trim();
               if (baseRack) {
@@ -1511,8 +1580,8 @@ if (statusName != null) {
       if (!status_id_tmp) throw new Error("Cannot map status to DB id");
 
       const upsertPayload = {
-        su_key: Number(suStr),
-        rack_name: ptRackNameForDB(rackStr),
+        su_key: Number(suNumOnly),
+        rack_name: String(rackBase),
         process_id: processIdGuess || undefined,
         process_name: processIdGuess ? undefined : procStr,
         status_id: status_id_tmp,
