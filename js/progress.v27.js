@@ -1685,41 +1685,62 @@ console.log("[SU FIX]", { suStrRaw, isCellKey, suNumOnly, suStr, suNorm, rackStr
     //    NOTE: PT_REST.apiGetRackProcessStatus() uses the VIEW endpoint and may not include everything we need for writes.
     //    For writes we use /api/runs which contains rack_process_run_id reliably.
     // 4) Preferred lookup: ask backend for the exact run (fast + deterministic)
+    // 4) Preferred lookup: ask backend for the exact run (fast + deterministic)
+// Backend expects: rack_name + process_id + (su_key OR lu(+rack_row))
 if (!runInfo) {
   try {
-    const url =
-      "/api/runs/lookup" +
-      "?su_key=" + encodeURIComponent(String(suNumOnly || "").trim()) +
-      "&rack_name=" + encodeURIComponent(String(rackBase || "").trim()) +
-      "&process_name=" + encodeURIComponent(String(procStr || "").trim());
+    const processIdLookup = (PT_DB.procDescToId.get(procNorm) || 0);
 
-    const found = await window.PT_REST.fetchJSON(url);
-    const foundRunId = Number(found?.rack_process_run_id || found?.run_id || found?.id || 0);
+    // если processId нет — lookup бессмысленен (сразу на upsert/ошибку ниже)
+    if (processIdLookup) {
+      const params = new URLSearchParams();
+      params.set("rack_name", String(rackBase || "").trim());
+      params.set("process_id", String(processIdLookup));
 
-    if (foundRunId) {
-      runInfo = {
-        runId: foundRunId,
-        processId: Number(found?.process_id || 0),
-        su_key: String(found?.su_key || suNumOnly || ""),
-        rack_name: String(found?.rack_name || rackBase || ""),
-        process_name: String(found?.process_name || procStr || "")
-      };
+      if (!isCellKey) {
+        // SU row
+        if (suNumOnly) params.set("su_key", String(suNumOnly));
+      } else {
+        // CELL KEY: "LU1_ROW12_SIS_T1"
+        const m = suStrRaw.match(/^LU(\d+)_ROW(\d+)_/i);
+        if (m) {
+          params.set("lu", m[1]);       // "1"
+          params.set("rack_row", m[2]); // "12"
+        }
+      }
 
-      // Seed index so next save is instant
-      try {
-        PT_DB.runIndex.set(`${suStr}|${rackStr}|${procStr}`, runInfo);
-        PT_DB.runIndex.set(`${suStr}|${rackBase}|${procStr}`, runInfo);
-        PT_DB.runIndex.set(`${rackStr}|${procStr}`, runInfo);
-        PT_DB.runIndex.set(`${rackBase}|${procStr}`, runInfo);
-      } catch {}
+      params.set("_", String(Date.now()));
 
-      // Apply immediately (so UI reflects backend without refresh)
-      try { ptApplyBackendRowToUI(found); } catch {}
+      const found = await window.PT_REST.fetchJSON("/api/runs/lookup?" + params.toString());
+      const foundRunId = Number(found?.rack_process_run_id || found?.run_id || found?.id || 0);
+
+      if (foundRunId) {
+        runInfo = {
+          runId: foundRunId,
+          processId: Number(found?.process_id || processIdLookup),
+        };
+
+        // Seed index so next save is instant (и по rackRaw, и по rackBase)
+        try {
+          PT_DB.runIndex.set(`${suStr}|${rackStr}|${procStr}`, runInfo);
+          PT_DB.runIndex.set(`${suStr}|${rackBase}|${procStr}`, runInfo);
+          PT_DB.runIndex.set(`${rackStr}|${procStr}`, runInfo);
+          PT_DB.runIndex.set(`${rackBase}|${procStr}`, runInfo);
+
+          // нормализованные
+          PT_DB.runIndex.set(`${suNorm}|${rackNorm}|${procNorm}`, runInfo);
+          PT_DB.runIndex.set(`${rackNorm}|${procNorm}`, runInfo);
+        } catch {}
+
+        // Apply immediately so UI reflects backend without refresh
+        try { ptApplyBackendRowToUI(found); } catch {}
+      }
     }
   } catch (e) {
     // ignore (404 not found пока нет строки — норм)
   }
 }
+
 
     if (!runInfo) {
       try {
