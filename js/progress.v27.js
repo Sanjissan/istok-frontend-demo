@@ -757,14 +757,21 @@ const CELL_RACKS = {
   };
 
   // === PATCH: build rack_name -> cellKeys map (NA29 -> LU1_ROW12_SIS_T1, etc.) ===
+// === PATCH: build rack_name -> cellKeys map (NA29 -> LU1_ROW12_SIS_T1, etc.) ===
 const PT_RACK_TO_CELL_KEYS = new Map();
+window.PT_RACK_TO_CELL_KEYS = PT_RACK_TO_CELL_KEYS;
 
 try {
   for (const [cellKey, racks] of Object.entries(CELL_RACKS || {})) {
     for (const r of (racks || [])) {
-      const base = String((r && (r.name || r.id)) || "").trim().toUpperCase();
+      const base = String((r && (r.name || r.id)) || "")
+        .trim()
+        .toUpperCase();
       if (!base) continue;
-      if (!PT_RACK_TO_CELL_KEYS.has(base)) PT_RACK_TO_CELL_KEYS.set(base, new Set());
+
+      if (!PT_RACK_TO_CELL_KEYS.has(base)) {
+        PT_RACK_TO_CELL_KEYS.set(base, new Set());
+      }
       PT_RACK_TO_CELL_KEYS.get(base).add(cellKey);
     }
   }
@@ -772,6 +779,7 @@ try {
   console.warn("PT_RACK_TO_CELL_KEYS build failed:", e);
 }
 // === end PATCH ===
+
 
   function cellKeyHash(s){
     let h = 2166136261;
@@ -1321,6 +1329,11 @@ if (!suKeyEff) {
     suKeyEff = `${luEff}_ROW${rowEff}_${typeEff.replace(/\s+/g, "_").toUpperCase()}`;
   }
 }
+  // ✅ IMPORTANT: для NA/NB (когда suNumOnly пустой) обязательно пишем под cell-key
+if (!suNumOnly && suKeyEff) {
+  suKeysToWrite.push(suKeyEff);
+  suKeysToWrite = Array.from(new Set(suKeysToWrite.filter(Boolean)));
+}
 
 
   const procKey = String(ptPick(row, ["process_name","process","processName","rack_type","rackType","type"]) || "").trim();
@@ -1349,9 +1362,10 @@ try {
 
   if (!isSuRow && rackName) {
     const base = String(rackName).trim().toUpperCase();
-    const cellKeys = (typeof PT_RACK_TO_CELL_KEYS !== "undefined")
-      ? PT_RACK_TO_CELL_KEYS.get(base)
-      : null;
+    const cellKeys = (window.PT_RACK_TO_CELL_KEYS && window.PT_RACK_TO_CELL_KEYS.get)
+  ? window.PT_RACK_TO_CELL_KEYS.get(base)
+  : null;
+
 
     if (cellKeys && cellKeys.size) {
       for (const ck of cellKeys) suKeysToWrite.push(ck);
@@ -2380,7 +2394,7 @@ return resp;
   try {
     if (!noteEl) return;
 
-    // если ничего не выбрано — очищаем
+    // ничего не выбрано — очищаем
     if (!selected || !selected.suKey || !selected.rackId) {
       noteEl.value = "";
       return;
@@ -2396,24 +2410,38 @@ return resp;
       (typeof window.getStoredNote === "function" ? window.getStoredNote : null) ||
       (typeof getStoredNote === "function" ? getStoredNote : null);
 
-    const suRaw = String(selected.suKey || "").trim();
-    const suNum = String(suNumFromKey(suRaw) || suRaw).replace(/^SU\s*/i, "").trim(); // "79"
-    const suUI  = (typeof suKeyToUI === "function") ? suKeyToUI(suNum) : ("SU" + suNum);
+    const setter =
+      (typeof window.setStoredNote === "function" ? window.setStoredNote : null) ||
+      (typeof setStoredNote === "function" ? setStoredNote : null);
 
-    const rackRaw = String(selected.rackId || "").trim(); // часто "LPC-SU79"
+    const suRaw = String(selected.suKey || "").trim(); // может быть "79" или "LU1_ROW12_SIS_T1"
+    const rackRaw = String(selected.rackId || "").trim();
+
     const rackBase =
       (typeof ptRackNameForDB === "function") ? ptRackNameForDB(rackRaw)
       : rackRaw.split("•")[0].trim().replace(/[-_\s]*SU\s*\d+$/i, "");
 
+    // определяем SU-номер только если это реально цифры
+    const suNum = (() => {
+      const x = String(suNumFromKey(suRaw) || "").replace(/^SU\s*/i, "").trim();
+      return /^\d+$/.test(x) ? x : "";
+    })();
+
+    const suUI = suNum ? ((typeof suKeyToUI === "function") ? suKeyToUI(suNum) : ("SU" + suNum)) : "";
+
     const racks = Array.from(new Set([
       rackRaw,
       rackBase,
-      (rackBase ? `${rackBase}-SU${suNum}` : null),
+      (suNum && rackBase ? `${rackBase}-SU${suNum}` : null),
     ].filter(Boolean)));
 
-    const sus = Array.from(new Set([suRaw, suNum, suUI].filter(Boolean)));
+    const sus = Array.from(new Set([
+      suRaw,     // важно: для NA/NB это cell-key
+      suNum,
+      suUI,
+    ].filter(Boolean)));
 
-    // 1) try local cache first
+    // 1) local cache
     let v = "";
     if (getter) {
       for (const s of sus) {
@@ -2428,18 +2456,22 @@ return resp;
       }
     }
 
-    // apply what we have immediately
+    // применяем сразу что нашли
     if (String(noteEl.value || "") !== v) noteEl.value = v;
 
-    // 2) fallback to backend truth if empty
+    // 2) backend fallback только если пусто
     if (!v && window.PT_REST && typeof window.PT_REST.fetchJSON === "function") {
-      const key = `${suNum}|${rackBase}|${targetProc}`;
-      // анти-дребезг: не спамим lookup при каждом ререндере
-      if (window.__PT_NOTE_LOOKUP_INFLIGHT__ === key) return;
-      window.__PT_NOTE_LOOKUP_INFLIGHT__ = key;
+      // анти-спам: один и тот же lookup не дергать бесконечно
+      const inflightKey = `${suRaw}|${rackBase}|${targetProc}`;
+      if (window.__PT_NOTE_LOOKUP_INFLIGHT__ === inflightKey) return;
+      window.__PT_NOTE_LOOKUP_INFLIGHT__ = inflightKey;
 
+      // ✅ SU rows -> lookup with su_key
+      // ✅ NA/NB rows -> lookup WITHOUT su_key (because DB su_key is NULL)
       const url =
-        `/api/runs/lookup?su_key=${encodeURIComponent(suNum)}` +
+        (suNum
+          ? `/api/runs/lookup?su_key=${encodeURIComponent(suNum)}`
+          : `/api/runs/lookup?`) +
         `&rack_name=${encodeURIComponent(rackBase)}` +
         `&process_name=${encodeURIComponent(targetProc)}` +
         `&_=${Date.now()}`;
@@ -2447,33 +2479,30 @@ return resp;
       window.PT_REST.fetchJSON(url)
         .then(row => {
           const backendNote = row && row.note != null ? String(row.note).trim() : "";
-          if (backendNote) {
-            // положим в локальный кэш, если есть setter
-            const setter =
-              (typeof window.setStoredNote === "function" ? window.setStoredNote : null) ||
-              (typeof setStoredNote === "function" ? setStoredNote : null);
+          if (!backendNote) return;
 
-            if (setter) {
-              // кладем под несколько ключей, чтобы UI точно нашёл
-              for (const s of sus) for (const r of racks) setter(s, r, targetProc, backendNote);
-            }
+          // кладём в локальный кэш под разные ключи
+          if (setter) {
+            for (const s of sus) for (const r of racks) setter(s, r, targetProc, backendNote);
+          }
 
-            // обновим textarea если пользователь не печатает прямо сейчас
-            const isFocused = document.activeElement === noteEl;
-            if (!isFocused || !String(noteEl.value || "").trim()) {
-              noteEl.value = backendNote;
-            }
+          // обновим textarea (если пользователь не печатает)
+          const isFocused = (document.activeElement === noteEl);
+          if (!isFocused || !String(noteEl.value || "").trim()) {
+            noteEl.value = backendNote;
           }
         })
         .catch(()=>{})
         .finally(() => {
-          if (window.__PT_NOTE_LOOKUP_INFLIGHT__ === key) window.__PT_NOTE_LOOKUP_INFLIGHT__ = null;
+          if (window.__PT_NOTE_LOOKUP_INFLIGHT__ === inflightKey) window.__PT_NOTE_LOOKUP_INFLIGHT__ = null;
         });
     }
+
   } catch (e) {
     console.warn("loadNoteForSelection failed:", e);
   }
 }
+
 
 
 
