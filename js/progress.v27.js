@@ -756,6 +756,23 @@ const CELL_RACKS = {
     ],
   };
 
+  // === PATCH: build rack_name -> cellKeys map (NA29 -> LU1_ROW12_SIS_T1, etc.) ===
+const PT_RACK_TO_CELL_KEYS = new Map();
+
+try {
+  for (const [cellKey, racks] of Object.entries(CELL_RACKS || {})) {
+    for (const r of (racks || [])) {
+      const base = String((r && (r.name || r.id)) || "").trim().toUpperCase();
+      if (!base) continue;
+      if (!PT_RACK_TO_CELL_KEYS.has(base)) PT_RACK_TO_CELL_KEYS.set(base, new Set());
+      PT_RACK_TO_CELL_KEYS.get(base).add(cellKey);
+    }
+  }
+} catch (e) {
+  console.warn("PT_RACK_TO_CELL_KEYS build failed:", e);
+}
+// === end PATCH ===
+
   function cellKeyHash(s){
     let h = 2166136261;
     for (let i=0;i<s.length;i++){
@@ -1328,7 +1345,7 @@ if (rackName) {
 // чтобы UI, который выбирает по "LU1_ROW12_SIS_T1", смог прочитать status/note
 try {
   // если suNumOnly пустой ИЛИ вообще нет цифр SU — это не SU-строка
-  const isSuRow = !!suNumOnly;
+  const isSuRow = /^\d+$/.test(String(suNumOnly || "").trim());
 
   if (!isSuRow && rackName) {
     const base = String(rackName).trim().toUpperCase();
