@@ -1586,7 +1586,8 @@ console.log("[BOOT] after apply runIndex.size=", window.PT_DB && window.PT_DB.ru
     if (!window.PT_REST) throw new Error("API is not available");
 
     const suStrRaw = String(suKey || "").trim();
-    // ✅ FIX: если это CELL KEY (LUx_ROWy_...), НЕ превращаем в SU-номер
+
+// ✅ FIX: если это CELL KEY (LUx_ROWy_...), НЕ превращаем в SU-номер
 const isCellKey = /^LU\d+_ROW\d+_/i.test(suStrRaw);
 
 // suNumOnly нужен ТОЛЬКО для настоящих SU (79 / SU79)
@@ -1600,13 +1601,16 @@ const suNumOnly = isCellKey
 // suStr — ключ, под которым UI/индекс хранит (SU: "79", CELL: "LU1_ROW12_SIS_T1")
 const suStr = isCellKey ? suStrRaw : (suNumOnly || suStrRaw);
 
-// нормализованный ключ
+const rackStr = String(rackId || "").trim();      // ✅ ОБЯЗАТЕЛЬНО ДО rackBase/rackNorm
+const procStr = String(procKey || "").trim();
+
+const rackBase = ptRackNameForBackend(rackStr);
 const suNorm = norm(suStr);
+const rackNorm = norm(rackStr);
+const procNorm = norm(procStr);
 
-console.log("[SU FIX]", { suStrRaw, isCellKey, suNumOnly, suStr, suNorm });
+console.log("[SU FIX]", { suStrRaw, isCellKey, suNumOnly, suStr, suNorm, rackStr, rackBase, procStr });
 
-    const rackNorm = norm(rackStr);
-    const procNorm = norm(procStr);
 
     // 1) Fast-path lookups (existing key formats)
     let runInfo =
