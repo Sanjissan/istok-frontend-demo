@@ -8,7 +8,8 @@
 // - Clears saved localStorage overrides used for offline UI codes
 // - Exposes helpers on window.PT_DEBUG
 // ==========================================================
-const PT_LS_CLEAR_RE = /^(pt_code|ptcode|pt-status|ptStatus|ptresp|pt_resp|ptnote|pt_note|ptselected|pt_selected|ptcache|pt_cache|ptui|pt_ui|ptCode|ptNote)/i;
+const PT_LS_CLEAR_RE = /^(pt_code|ptcode|pt-status|ptStatus|ptresp|pt_resp|ptselected|pt_selected|ptcache|pt_cache|ptui|pt_ui|ptCode)/i;
+
 function ptClearLocalOverrides() {
   try {
     const keys = Object.keys(localStorage || {});
@@ -642,7 +643,7 @@ const CELL_RACKS = {
     { id:"NA05", name:"NA28", type:"SIS NM", processes: (PROCESS_BY_TYPE["SIS NM"] || []) },
     ],
     "LU1_ROW13_SIS_T1": [
-      { id:"NB29", name:"NB29", type:"SIS NM", processes: (PROCESS_BY_TYPE["SIS NM"] || []) },
+      { id:"NB29", name:"NB29", type:"SIS T1", processes: (PROCESS_BY_TYPE["SIS T1"] || []) },
     ],
     "LU1_ROW13_SIS_NM": [
       { id:"NB28", name:"NB28", type:"SIS NM", processes: (PROCESS_BY_TYPE["SIS NM"] || []) },
@@ -780,6 +781,25 @@ const CELL_RACKS = {
     return out;
   })();
   
+  // --- PT: map rack aliases (NA29) -> unique rack ids (NA29@hash) ---
+const PT_RACK_ALIAS_TO_UNIQUE_IDS = (() => {
+  const m = new Map(); // aliasUpper -> Set(uniqueId)
+  try {
+    for (const racks of Object.values(CELL_RACKS_UNIQUE || {})) {
+      for (const r of (racks || [])) {
+        const uid = String(r.id || "").trim();
+        const aliases = Array.isArray(r.aliases) ? r.aliases : [];
+        for (const a of aliases) {
+          const k = String(a || "").trim().toUpperCase();
+          if (!k) continue;
+          if (!m.has(k)) m.set(k, new Set());
+          m.get(k).add(uid);
+        }
+      }
+    }
+  } catch {}
+  return m;
+})();
 
   const PROGRESS = {
   };
@@ -1260,14 +1280,18 @@ function ptApplyBackendRowToUI(row) {
   const suKeyRaw = String(ptPick(row, ["su_key","su","suKey","su_id","su_number"]) || "").trim();
 
   // 1) "79" — для rack mapping / backend
-const suNumOnly = String(suNumFromKey(suKeyRaw) || suKeyRaw).trim();
+const suNumOnly = (() => {
+  const raw = String(suNumFromKey(suKeyRaw) || "").trim();
+  // только цифры считаем SU номером
+  return /^\d+$/.test(raw) ? raw : "";
+})();
 
 // 2) "SU79" — для UI storage keys
-const suKeyInternal = suNumOnly;      // "79"
-const suKeyUI = suKeyToUI(suNumOnly); // "SU79"
+const suKeyInternal = suNumOnly; // "" для NA/NB
+const suKeyUI = suNumOnly ? suKeyToUI(suNumOnly) : "";
 
 // будем писать/индексировать под обоими ключами
-const suKeysToWrite = Array.from(new Set([suKeyInternal, suKeyUI].filter(Boolean)));
+let suKeysToWrite = Array.from(new Set([suKeyInternal, suKeyUI].filter(Boolean)));
 
 // suKeyEff оставляем ТОЛЬКО как "fallback key" для non-SU строк (NA/NB),
 // иначе по умолчанию используем внутренний "79"
@@ -1295,21 +1319,50 @@ if (!suKeyEff) {
 const rackName = String(ptPick(row, ["rack_name", "rackName", "rack"]) || "").trim();
 
 if (rackName) {
-  rackIds.push(rackName);                    // "LPC"
-  rackIds.push(`${rackName}-SU${suNumOnly}`); // "LPC-SU79"
+  rackIds.push(rackName);
+  if (suNumOnly) rackIds.push(`${rackName}-SU${suNumOnly}`);
 }
+
+
+// ✅ PT 3.2: для NA/NB (когда нет нормального su_key) пишем под CELL key (LUx_ROWy_...)
+// чтобы UI, который выбирает по "LU1_ROW12_SIS_T1", смог прочитать status/note
+try {
+  // если suNumOnly пустой ИЛИ вообще нет цифр SU — это не SU-строка
+  const isSuRow = !!suNumOnly;
+
+  if (!isSuRow && rackName) {
+    const base = String(rackName).trim().toUpperCase();
+    const cellKeys = (typeof PT_RACK_TO_CELL_KEYS !== "undefined")
+      ? PT_RACK_TO_CELL_KEYS.get(base)
+      : null;
+
+    if (cellKeys && cellKeys.size) {
+      for (const ck of cellKeys) suKeysToWrite.push(ck);
+      suKeysToWrite = Array.from(new Set(suKeysToWrite.filter(Boolean)));
+    }
+  }
+} catch {}
+console.log("[SUKEYS]", rackName, suNumOnly, suKeysToWrite);
 
 // убираем дубликаты
 const uniqueRackIds = Array.from(new Set(rackIds));
 
-  console.log("[RACKIDS]", suNumOnly, "=>", suKeyEff, uniqueRackIds);
+// ✅ Expand NA/NB base ids (NA29) -> actual unique ids (NA29@hash) used by UI
+const expandedRackIdsSet = new Set(uniqueRackIds);
+for (const rid of uniqueRackIds) {
+  const key = String(rid || "").trim().toUpperCase();
+  const uids = PT_RACK_ALIAS_TO_UNIQUE_IDS.get(key);
+  if (uids) for (const u of uids) expandedRackIdsSet.add(u);
+}
+const expandedRackIds = Array.from(expandedRackIdsSet);
 
-  // ... дальше твой код без изменений, но setCodeFromBackend/setStoredNote должны использовать suKeyEff (UI key)
-
+// лог лучше показывать expanded
+console.log("[RACKIDS]", suNumOnly, "=>", suKeyEff, { uniqueRackIds, expandedRackIds });
 
 const procId = PT_DB.procDescToId.get(norm(procKey)) || Number(ptPick(row, ["process_id","processId"])) || null;
 
-for (const rid of uniqueRackIds) {
+// ✅ 1) runIndex — используем expandedRackIds
+for (const rid of expandedRackIds) {
   // ключи с SU (и "79", и "SU79")
   for (const suK of suKeysToWrite) {
     PT_DB.runIndex.set(`${suK}|${rid}|${procKey}`, { runId, processId: procId });
@@ -1322,13 +1375,14 @@ for (const rid of uniqueRackIds) {
 }
 
 if (runId === 469) {
-  console.log("[RUN469 APPLY]", { suKeyRaw, suNumOnly, suKeyEff, procKey, statusName, uniqueRackIds });
+  console.log("[RUN469 APPLY]", { suKeyRaw, suNumOnly, suKeyEff, procKey, statusName, uniqueRackIds, expandedRackIds });
 }
 
+// ✅ 2) status apply — используем expandedRackIds
 if (statusName != null) {
   const code = ptFindCodeByLabel(procKey, statusName);
   if (code != null) {
-    for (const rid of uniqueRackIds) {
+    for (const rid of expandedRackIds) {
       for (const suK of suKeysToWrite) {
         setCodeFromBackend(suK, rid, procKey, code);
       }
@@ -1342,8 +1396,9 @@ const noteFn =
   (typeof window.setStoredNote === "function" ? window.setStoredNote : null) ||
   (typeof setStoredNote === "function" ? setStoredNote : null);
 
+// ✅ 3) note apply — используем expandedRackIds
 if (noteText && noteFn) {
-  for (const rid of uniqueRackIds) {
+  for (const rid of expandedRackIds) {
     for (const suK of suKeysToWrite) {
       noteFn(suK, rid, procKey, noteText);
     }
