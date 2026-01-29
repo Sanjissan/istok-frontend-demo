@@ -50,7 +50,7 @@ window.PT_DEBUG.run575 = function () {
       return window.PT_API.getRuns(5000).then(rows => (rows || []).find(r => Number(r.rack_process_run_id) === 575));
     }
     if (window.PT_REST && typeof window.PT_REST.fetchJSON === "function") {
-      return window.PT_REST.fetchJSON("/api/runs?limit=20000&_=" + Date.now()).then(rows => (rows || []).find(r => Number(r.rack_process_run_id) === 575));
+      return window.PT_REST.fetchJSON("/api/runs?limit=5000&_=" + Date.now()).then(rows => (rows || []).find(r => Number(r.rack_process_run_id) === 575));
     }
   } catch {}
   return Promise.resolve(null);
@@ -74,37 +74,62 @@ window.PT_DEBUG.run575 = function () {
   }
 
   async function fetchJSON(pathOrUrl, opts = {}) {
-    const base = resolveBase();
-    const url = /^https?:\/\//i.test(pathOrUrl)
-      ? pathOrUrl
-      : (base ? `${base}${pathOrUrl}` : pathOrUrl);
+  const base = resolveBase();
+  const url = /^https?:\/\//i.test(pathOrUrl)
+    ? pathOrUrl
+    : (base ? `${base}${pathOrUrl}` : pathOrUrl);
 
-    const res = await fetch(url, {
-      ...opts,
-      // 🔒 avoid 304 / cached API responses (CloudFront, browser, proxies)
-      cache: "no-store",
-      headers: {
-        "Content-Type": "application/json",
-        "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
-        "Pragma": "no-cache",
-        "Expires": "0",
-        ...(opts.headers || {}),
-      },
-      credentials: opts.credentials || "include",
-    });
+  const method = (opts.method || "GET").toUpperCase();
+  const hasBody = opts.body != null && method !== "GET" && method !== "HEAD";
 
-    const text = await res.text();
-    const ctype = (res.headers && res.headers.get) ? (res.headers.get("content-type") || "") : "";
-    window.PT_DEBUG = window.PT_DEBUG || {};
-    window.PT_DEBUG._lastFetch = { url, status: res.status, ok: res.ok, contentType: ctype, preview: String(text || "").slice(0, 200) };
-    let body;
-    try { body = text ? JSON.parse(text) : null; } catch { body = text; }
+  const headers = {
+    "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+    "Pragma": "no-cache",
+    "Expires": "0",
+    ...(hasBody ? { "Content-Type": "application/json" } : {}),
+    ...(opts.headers || {}),
+  };
 
-    if (!res.ok) {
-      throw new Error(`API error ${res.status}: ${typeof body === "string" ? body : JSON.stringify(body)}`);
-    }
-    return body;
+  const res = await fetch(url, {
+    ...opts,
+    cache: "no-store",
+    headers,
+    // ✅ safer default; override per-call if you really need include
+    credentials: opts.credentials || "same-origin",
+  });
+
+  const ctype = res.headers?.get?.("content-type") || "";
+
+  // Прочитаем body один раз как text (и уже потом решим, JSON это или нет)
+  const text = await res.text();
+
+  window.PT_DEBUG = window.PT_DEBUG || {};
+  window.PT_DEBUG._lastFetch = {
+    url,
+    status: res.status,
+    ok: res.ok,
+    contentType: ctype,
+    preview: String(text || "").slice(0, 200),
+  };
+
+  // ✅ 404 иногда НЕ ошибка (lookup). Управляемо через флаг
+  if (res.status === 404 && !!opts.allow404) {
+    return null;
   }
+
+  let body;
+  try { body = text ? JSON.parse(text) : null; } catch { body = text; }
+
+  if (!res.ok) {
+    throw new Error(
+      `API error ${res.status}: ${typeof body === "string" ? body : JSON.stringify(body)}`
+    );
+  }
+
+  return body;
+}
+
+
 
   async function apiGetRackProcessStatus() {
     if (window.PT_API && typeof window.PT_API.getRackProcessStatus === "function") {
@@ -1621,304 +1646,242 @@ console.log("[BOOT] after apply runIndex.size=", window.PT_DB && window.PT_DB.ru
 }
 
 
-  async function ptPersistToBackend(suKey, rackId, procKey, code, noteText){
-    if (!window.PT_REST) throw new Error("API is not available");
+ async function ptPersistToBackend(suKey, rackId, procKey, code, noteText) {
+  if (!window.PT_REST) throw new Error("API is not available");
 
-    const suStrRaw = String(suKey || "").trim();
+  /* =========================
+     0. Normalize input
+  ========================= */
+  const suStrRaw = String(suKey || "").trim();
+  const isCellKey = /^LU\d+_ROW\d+_/i.test(suStrRaw);
 
-// ✅ FIX: если это CELL KEY (LUx_ROWy_...), НЕ превращаем в SU-номер
-const isCellKey = /^LU\d+_ROW\d+_/i.test(suStrRaw);
+  const suNumOnly = isCellKey
+    ? ""
+    : (() => {
+        const raw = String(suNumFromKey(suStrRaw) || "").trim();
+        return /^\d+$/.test(raw) ? raw : "";
+      })();
 
-// suNumOnly нужен ТОЛЬКО для настоящих SU (79 / SU79)
-const suNumOnly = isCellKey
-  ? ""
-  : (() => {
-      const raw = String(suNumFromKey(suStrRaw) || "").trim();
-      return /^\d+$/.test(raw) ? raw : "";
-    })();
+  const suStr = isCellKey ? suStrRaw : (suNumOnly || suStrRaw);
 
-// suStr — ключ, под которым UI/индекс хранит (SU: "79", CELL: "LU1_ROW12_SIS_T1")
-const suStr = isCellKey ? suStrRaw : (suNumOnly || suStrRaw);
+  const rackStr = String(rackId || "").trim();
+  const procStr = String(procKey || "").trim();
 
-const rackStr = String(rackId || "").trim();      // ✅ ОБЯЗАТЕЛЬНО ДО rackBase/rackNorm
-const procStr = String(procKey || "").trim();
+  const rackBase = ptRackNameForBackend(rackStr);
+  const suNorm   = norm(suStr);
+  const rackNorm = norm(rackStr);
+  const procNorm = norm(procStr);
 
-const rackBase = ptRackNameForBackend(rackStr);
-const suNorm = norm(suStr);
-const rackNorm = norm(rackStr);
-const procNorm = norm(procStr);
+  /* =========================
+     0.1 Disabled racks
+  ========================= */
+  const disabledRacks = new Set([
+    "NA28","NA21","NA11","NA05",
+    "NB28","NB21","NB11","NB05"
+  ]);
 
-console.log("[SU FIX]", { suStrRaw, isCellKey, suNumOnly, suStr, suNorm, rackStr, rackBase, procStr });
-
-
-    // 1) Fast-path lookups (existing key formats)
-    let runInfo =
-      PT_DB.runIndex.get(`${suStr}|${rackStr}|${procStr}`) ||
-      PT_DB.runIndex.get(`${rackStr}|${procStr}`) ||
-      PT_DB.runIndex.get(`${suNorm}|${rackNorm}|${procNorm}`) ||
-      PT_DB.runIndex.get(`${rackNorm}|${procNorm}`);
-
-    // 2) Try alternate rack id formats for SU-based racks (GPU-SUXX etc.)
-    console.log("[SAVE DEBUG] runInfo=", runInfo, "su=", suStr, "rackStr=", rackStr, "proc=", procStr);
-
-    if (!runInfo) {
-      const suNumFromSuKey = suStr.replace(/^SU\s*/i, "").trim();
-      const suNumFromRackId = (rackStr.match(/SU\s*([0-9]+)/i) || [])[1] || "";
-      const suNum = suNumFromRackId || suNumFromSuKey;
-      if (suNum) {
-        const altRackId = `GPU-SU${suNum}`;
-        runInfo =
-          PT_DB.runIndex.get(`${suNum}|${altRackId}|${procStr}`) ||
-          PT_DB.runIndex.get(`${norm(suNum)}|${norm(altRackId)}|${procNorm}`) ||
-          PT_DB.runIndex.get(`${altRackId}|${procStr}`) ||
-          PT_DB.runIndex.get(`${norm(altRackId)}|${procNorm}`);
-      }
-    }
-
-    // 3) Fallback: scan the index by SU + process (handles UI rack ids like "LSL-SU96")
-    if (!runInfo) {
-      const wantedSuffix1 = `|${procStr}`;
-      const wantedSuffix2 = `|${procNorm}`;
-      for (const [k, v] of PT_DB.runIndex.entries()) {
-        // we store keys in multiple forms; accept either raw or normalized proc suffix
-        if (!(k.endsWith(wantedSuffix1) || k.endsWith(wantedSuffix2))) continue;
-
-        // prefer keys that include the SU prefix: "96|<rack>|GPU AEC"
-        if (suStr && k.startsWith(`${suStr}|`)) { runInfo = v; break; }
-        if (suNorm && k.startsWith(`${suNorm}|`)) { runInfo = v; break; }
-      }
-    }
-
-// 4) Preferred lookup: backend truth (rack_name + process_id + selector)
-// Backend expects: rack_name + process_id + (su_key OR lu(+rack_row))
-if (!runInfo) {
-  try {
-    const processIdLookup = Number(PT_DB.procDescToId.get(procNorm) || 0);
-    if (processIdLookup) {
-      const params = new URLSearchParams();
-      params.set("rack_name", String(rackBase || "").trim());
-      params.set("process_id", String(processIdLookup));
-
-      if (isCellKey) {
-        // CELL KEY: "LU7_ROW12_ROCE_T2_RAIL3" -> lu=7 rack_row=12
-        const m = String(suStrRaw || "").match(/^LU(\d+)_ROW(\d+)_/i);
-        if (m) {
-          params.set("lu", m[1]);
-          params.set("rack_row", m[2]);
-        }
-      } else {
-        // SU row: su_key=79
-        if (suNumOnly) params.set("su_key", String(suNumOnly));
-      }
-
-      // cache-bust (чтобы CloudFront/браузер не мешал)
-      params.set("_", String(Date.now()));
-
-      const found = await window.PT_REST.fetchJSON("/api/runs/lookup?" + params.toString());
-      const foundRunId = Number(found?.rack_process_run_id || found?.run_id || found?.id || 0);
-
-      if (foundRunId) {
-        runInfo = {
-          runId: foundRunId,
-          processId: Number(found?.process_id || processIdLookup),
-        };
-
-        // Seed index so next save is instant
-        try {
-          PT_DB.runIndex.set(`${suStr}|${rackStr}|${procStr}`, runInfo);
-          PT_DB.runIndex.set(`${suStr}|${rackBase}|${procStr}`, runInfo);
-          PT_DB.runIndex.set(`${rackStr}|${procStr}`, runInfo);
-          PT_DB.runIndex.set(`${rackBase}|${procStr}`, runInfo);
-
-          PT_DB.runIndex.set(`${suNorm}|${rackNorm}|${procNorm}`, runInfo);
-          PT_DB.runIndex.set(`${rackNorm}|${procNorm}`, runInfo);
-        } catch {}
-
-        // Apply immediately so UI reflects backend without refresh
-        try { ptApplyBackendRowToUI(found); } catch {}
-      }
-    }
-  } catch (e) {
-    // ignore (404 not found пока нет строки — норм)
+  if (disabledRacks.has(String(rackBase || "").toUpperCase())) {
+    console.warn("[PT] Disabled rack, skip persist:", rackBase);
+    return { skipped: true };
   }
-}
 
+  /* =========================
+     1. Fast-path index lookup
+  ========================= */
+  let runInfo =
+    PT_DB.runIndex.get(`${suStr}|${rackStr}|${procStr}`) ||
+    PT_DB.runIndex.get(`${rackStr}|${procStr}`) ||
+    PT_DB.runIndex.get(`${suNorm}|${rackNorm}|${procNorm}`) ||
+    PT_DB.runIndex.get(`${rackNorm}|${procNorm}`);
 
-
+  /* =========================
+     2. Alternate rack formats
+  ========================= */
   if (!runInfo) {
-  try {
-    const rows = await window.PT_REST.fetchJSON("/api/runs?limit=5000&_=" + Date.now());
-    if (!Array.isArray(rows) || !rows.length) throw new Error("runs empty");
-
-    // 1) Ищем по process_id (стабильно), а не по строке process_name
-    const processIdLookup = (window.PT_DB && window.PT_DB.procDescToId)
-      ? (window.PT_DB.procDescToId.get(procNorm) || 0)
-      : 0;
-
-    const rackBaseNorm = norm(String(rackBase || "").trim());
-
-    // 2) Определяем selector
-    let wantSU = "";
-    let wantLU = "";
-    let wantRow = "";
-
-    if (!isCellKey) {
-      // SU режим
-      wantSU = String(suNumOnly || "").trim();
-    } else {
-      // CELL KEY: LU7_ROW12_...
-      const m = String(suStrRaw || "").match(/^LU(\d+)_ROW(\d+)_/i);
-      if (m) {
-        wantLU = String(m[1] || "").trim();
-        wantRow = String(m[2] || "").trim();
-      }
+    const suNumFromRack = (rackStr.match(/SU\s*([0-9]+)/i) || [])[1] || "";
+    const suNum = suNumFromRack || suNumOnly;
+    if (suNum) {
+      const altRack = `GPU-SU${suNum}`;
+      runInfo =
+        PT_DB.runIndex.get(`${suNum}|${altRack}|${procStr}`) ||
+        PT_DB.runIndex.get(`${norm(suNum)}|${norm(altRack)}|${procNorm}`) ||
+        PT_DB.runIndex.get(`${altRack}|${procStr}`) ||
+        PT_DB.runIndex.get(`${norm(altRack)}|${procNorm}`);
     }
+  }
 
-    const match = rows.find(r => {
-      // rack match
-      if (norm(String(r.rack_name || "").trim()) !== rackBaseNorm) return false;
-
-      // process match: предпочитаем process_id
-      if (processIdLookup) {
-        if (Number(r.process_id || 0) !== Number(processIdLookup)) return false;
-      } else {
-        // fallback если вдруг нет id
-        if (norm(String(r.process_name || "").trim()) !== procNorm) return false;
-      }
-
-      // selector match:
-      // - если SU режим: su_key должен совпасть
-      if (wantSU) return String(r.su_key || "").trim() === wantSU;
-
-      // - если CELL режим: lu + rack_row (если они есть в данных)
-      if (wantLU) {
-        const luOk = String(r.lu || "").trim() === wantLU;
-        if (!luOk) return false;
-        if (wantRow) return String(r.rack_row ?? "").trim() === wantRow;
-        return true;
-      }
-
-      // - если вообще без selector: допускаем (редко)
-      return true;
-    });
-
-    if (match) {
-      runInfo = {
-        runId: Number(match.rack_process_run_id || match.run_id || match.id),
-        processId: Number(match.process_id || processIdLookup || 0),
-      };
-
-      // Seed index (важно: под ключом suStr, который может быть CELL KEY)
-      try {
-        PT_DB.runIndex.set(`${suStr}|${rackStr}|${procStr}`, runInfo);
-        PT_DB.runIndex.set(`${suStr}|${rackBase}|${procStr}`, runInfo);
-        PT_DB.runIndex.set(`${rackStr}|${procStr}`, runInfo);
-        PT_DB.runIndex.set(`${rackBase}|${procStr}`, runInfo);
-
-        PT_DB.runIndex.set(`${suNorm}|${norm(rackStr)}|${procNorm}`, runInfo);
-        PT_DB.runIndex.set(`${norm(rackStr)}|${procNorm}`, runInfo);
-      } catch {}
-
-      try { ptApplyBackendRowToUI(match); } catch {}
+  /* =========================
+     3. Scan index by suffix
+  ========================= */
+  if (!runInfo) {
+    const s1 = `|${procStr}`;
+    const s2 = `|${procNorm}`;
+    for (const [k, v] of PT_DB.runIndex.entries()) {
+      if (!(k.endsWith(s1) || k.endsWith(s2))) continue;
+      if (suStr && k.startsWith(`${suStr}|`)) { runInfo = v; break; }
+      if (suNorm && k.startsWith(`${suNorm}|`)) { runInfo = v; break; }
     }
-  } catch {}
-}
+  }
 
-    if (!runInfo) {
-      // Upsert mode: let backend create missing rack + run rows (requires runs.upsert.js deployed)
-      const processIdGuess = (PT_DB.procDescToId.get(procNorm) || 0);
-      const status_id_tmp = ptCodeToStatusId(procStr, code, processIdGuess);
-      if (!status_id_tmp) throw new Error("Cannot map status to DB id");
+  /* =========================
+     4. Backend lookup (truth)
+  ========================= */
+  if (!runInfo) {
+    try {
+      const processIdLookup = Number(PT_DB.procDescToId.get(procNorm) || 0);
+      if (processIdLookup && rackBase) {
+        const params = new URLSearchParams();
+        params.set("rack_name", rackBase);
+        params.set("process_id", String(processIdLookup));
 
-      const upsertPayload = {
-        // send selector only when it is valid
-        ...(suNumOnly ? { su_key: String(suNumOnly) } : {}),
-        ...(isCellKey ? (() => {
-          const mm = String(suStrRaw || "").match(/^LU(\d+)_ROW(\d+)_/i);
-          return mm ? { lu: String(mm[1]), rack_row: Number(mm[2]) } : {};
-        })() : {}),
+        let selectorOk = false;
 
-        rack_name: String(rackBase),
-        process_id: processIdGuess || undefined,
-        process_name: processIdGuess ? undefined : procStr,
-        status_id: status_id_tmp,
-        note: (noteText ? String(noteText).trim() : null),
-      };
+        if (isCellKey) {
+          const m = suStrRaw.match(/^LU(\d+)_ROW(\d+)_/i);
+          if (m) {
+            params.set("lu", m[1]);
+            params.set("rack_row", m[2]);
+            selectorOk = true;
+          }
+        } else if (suNumOnly) {
+          params.set("su_key", suNumOnly);
+          selectorOk = true;
+        }
 
-      const respUpsert = await window.PT_REST.fetchJSON("/api/runs/status", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(upsertPayload),
+        if (selectorOk) {
+          params.set("_", Date.now());
+          const found = await PT_REST.fetchJSON(
+            "/api/runs/lookup?" + params.toString(),
+            { allow404: true }
+          );
+
+          if (found && found.rack_process_run_id) {
+            runInfo = {
+              runId: Number(found.rack_process_run_id),
+              processId: Number(found.process_id || processIdLookup),
+            };
+
+            PT_DB.runIndex.set(`${suStr}|${rackStr}|${procStr}`, runInfo);
+            PT_DB.runIndex.set(`${rackStr}|${procStr}`, runInfo);
+            PT_DB.runIndex.set(`${suNorm}|${rackNorm}|${procNorm}`, runInfo);
+            PT_DB.runIndex.set(`${rackNorm}|${procNorm}`, runInfo);
+
+            try { ptApplyBackendRowToUI(found); } catch {}
+          }
+        }
+      }
+    } catch {}
+  }
+
+  /* =========================
+     5. Bulk fallback (/api/runs)
+  ========================= */
+  if (!runInfo) {
+    try {
+      const rows = await PT_REST.fetchJSON("/api/runs?limit=5000&_=" + Date.now());
+      const processIdLookup = Number(PT_DB.procDescToId.get(procNorm) || 0);
+      const rackBaseNorm = norm(rackBase);
+
+      const match = rows.find(r => {
+        if (norm(String(r.rack_name)) !== rackBaseNorm) return false;
+        if (processIdLookup && Number(r.process_id) !== processIdLookup) return false;
+
+        if (!isCellKey && suNumOnly) {
+          return String(r.su_key) === suNumOnly;
+        }
+
+        if (isCellKey) {
+          const m = suStrRaw.match(/^LU(\d+)_ROW(\d+)_/i);
+          if (!m) return false;
+          return String(r.lu) === m[1] && String(r.rack_row) === m[2];
+        }
+
+        return false;
       });
 
-      const updatedUpsert = (respUpsert && respUpsert.updated) ? respUpsert.updated : null;
-      if (updatedUpsert) {
-        ptApplyBackendRowToUI(updatedUpsert);
-        PT_DB.loaded = true;
-        return respUpsert;
+      if (match) {
+        runInfo = {
+          runId: Number(match.rack_process_run_id),
+          processId: Number(match.process_id || processIdLookup),
+        };
+        PT_DB.runIndex.set(`${suStr}|${rackStr}|${procStr}`, runInfo);
+        try { ptApplyBackendRowToUI(match); } catch {}
       }
+    } catch {}
+  }
 
-      throw new Error("Upsert failed: backend did not return updated row");
+  /* =========================
+     6. Upsert (create missing)
+  ========================= */
+  if (!runInfo) {
+    const processIdGuess = Number(PT_DB.procDescToId.get(procNorm) || 0);
+    const statusId = ptCodeToStatusId(procStr, code, processIdGuess);
+    if (!statusId) throw new Error("Cannot map status");
+
+    let selectorOk = false;
+    let selector = {};
+
+    if (suNumOnly) {
+      selector = { su_key: suNumOnly };
+      selectorOk = true;
+    } else if (isCellKey) {
+      const m = suStrRaw.match(/^LU(\d+)_ROW(\d+)_/i);
+      if (m) {
+        selector = { lu: m[1], rack_row: Number(m[2]) };
+        selectorOk = true;
+      }
     }
 
-const runId = (typeof runInfo === "object" && runInfo) ? Number(runInfo.runId) : Number(runInfo);const processId = (typeof runInfo === "object" && runInfo) ? Number(runInfo.processId)
-      : (PT_DB.procDescToId.get(procNorm) || 0);
-
-    if (!runId) {
-      throw new Error(`PT_FIX_RUNLOOKUP_V10: No rack_process_run_id for selected SU/rack/process: su=${suStr}, rack=${rackStr}, process=${procStr}`);
+    if (!selectorOk) {
+      console.warn("[PT] Skip upsert: no selector", suStrRaw);
+      return { skipped: true };
     }
 
-    const status_id = ptCodeToStatusId(procStr, code, processId);
-    if (!status_id) throw new Error("Cannot map status to DB id");
-
-    const resp = await window.PT_REST.apiUpdateRunStatus(runId, {
-      status_id,
-      note: (noteText ? String(noteText).trim() : null)
+    const respUpsert = await PT_REST.fetchJSON("/api/runs/status", {
+      method: "POST",
+      body: JSON.stringify({
+        ...selector,
+        rack_name: rackBase,
+        process_id: processIdGuess || undefined,
+        process_name: processIdGuess ? undefined : procStr,
+        status_id: statusId,
+        note: noteText ? String(noteText).trim() : null,
+      }),
     });
 
-    // ✅ FAST PATH: backend already returns the source of truth
-if (resp && resp.updated) {
-  try {
-    // 1) применяем "истину" от backend сразу в UI/индекс
+    if (respUpsert?.updated) {
+      ptApplyBackendRowToUI(respUpsert.updated);
+      return respUpsert;
+    }
+
+    throw new Error("Upsert failed");
+  }
+
+  /* =========================
+     7. Update existing run
+  ========================= */
+  const runId = Number(runInfo.runId);
+  const processId = Number(runInfo.processId);
+
+  const status_id = ptCodeToStatusId(procStr, code, processId);
+  if (!status_id) throw new Error("Cannot map status");
+
+  const resp = await PT_REST.apiUpdateRunStatus(runId, {
+    status_id,
+    note: noteText ? String(noteText).trim() : null,
+  });
+
+  if (resp?.updated) {
     ptApplyBackendRowToUI(resp.updated);
-    PT_DB.loaded = true;
+    PT_DB.runIndex.set(`${suStr}|${rackStr}|${procStr}`, {
+      runId: Number(resp.updated.rack_process_run_id),
+      processId,
+    });
+  }
 
-    // 2) 🔒 фиксируем runId в runIndex, чтобы следующий клик НЕ искал его снова
-    const updated = resp.updated;
-    const locked = {
-      runId: Number(updated.rack_process_run_id),
-      processId: Number(updated.process_id || processId),
-      su_key: String(updated.su_key || suStr),
-      rack_name: String(updated.rack_name || rackStr),
-      process_name: String(updated.process_name || procStr),
-    };
-
-    // ключи, которые ты используешь в начале ptPersistToBackend (1377-1381)
-    PT_DB.runIndex.set(`${suStr}|${rackStr}|${procStr}`, locked);
-    PT_DB.runIndex.set(`${rackStr}|${procStr}`, locked);
-    PT_DB.runIndex.set(`${suNorm}|${rackNorm}|${procNorm}`, locked);
-    PT_DB.runIndex.set(`${rackNorm}|${procNorm}`, locked);
-  } catch (e) {}
-
-  // ❗всё: без дополнительных GET /api/runs
   return resp;
 }
 
-// ✅ если updated нет — оставляем как было (fallback)
-return resp;
-
-
-    // If backend returns the updated row, apply it to UI state so refresh isn't required.
-    try {
-      const updated = (resp && resp.updated) ? resp.updated : null;
-      if (updated) {
-        ptApplyBackendRowToUI(updated);
-        PT_DB.loaded = true;
-      }
-    } catch {}
-
-    return resp;
-  }
 
 
   function hasBlockedBySU(suKey, proc){
@@ -2540,8 +2503,11 @@ if (!isCellKey && suNum) {
   if (m) {
     params.set("lu", m[1]);       // "7"
     params.set("rack_row", m[2]); // "12"
+  } else {
+    return; // ✅ нечем делать lookup (нет su_key и нет lu/row)
   }
 }
+
 
 // анти-дребезг: ключ без cache-bust параметра
 const inflightKey = "/api/runs/lookup?" + params.toString();
@@ -2553,9 +2519,11 @@ params.set("_", String(Date.now()));
 const url = "/api/runs/lookup?" + params.toString();
 
 
-      window.PT_REST.fetchJSON(url)
+      window.PT_REST.fetchJSON(url, { allow404: true })
         .then(row => {
-          const backendNote = row && row.note != null ? String(row.note).trim() : "";
+          if (!row) return; // ✅ 404 -> null (lookup not found) это норм
+  const backendNote = row.note != null ? String(row.note).trim() : "";
+
           if (!backendNote) return;
 
           const setter =
