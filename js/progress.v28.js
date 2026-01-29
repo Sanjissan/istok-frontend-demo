@@ -3272,8 +3272,11 @@ if (typeof who === "string" && who.trim()) {
 
         const newCode = String(statusSelect.value || "");
         if (newCode) setCode(selected.suKey, selected.rackId, targetProc, newCode);
-        if (noteEl) setStoredNote(selected.suKey, selected.rackId, targetProc, String(noteEl.value || "").trim());
+        if (noteEl) setStoredNote(selected.suKey, selected.rackId, targetProc, noteText.trim());
         if (who != null) {
+          const newCode = String(statusSelect.value || "");
+          const noteText = noteEl ? String(noteEl.value || "") : "";
+
   setStoredResp(selected.suKey, selected.rackId, targetProc, who);
 }
 
@@ -3282,7 +3285,7 @@ if (typeof who === "string" && who.trim()) {
         syncApplyUI();
         try {
           if (applyHint) applyHint.textContent = "Saving...";
-          await ptPersistToBackend(selected.suKey, selected.rackId, targetProc, newCode, noteEl ? String(noteEl.value || "").trim() : "");
+          await ptPersistToBackend(selected.suKey, selected.rackId, targetProc, newCode, noteText.trim());
           if (applyHint) applyHint.textContent = "Saved";
         } catch (e) {
           if (applyHint) applyHint.textContent = "Save failed";
