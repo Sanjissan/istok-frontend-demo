@@ -1845,7 +1845,10 @@ console.log("[BOOT] after apply runIndex.size=", window.PT_DB && window.PT_DB.ru
         process_id: processIdGuess || undefined,
         process_name: processIdGuess ? undefined : procStr,
         status_id: statusId,
-        note: noteText ? String(noteText).trim() : null,
+        ...(typeof noteText === "string"
+  ? { note: String(noteText).trim() }
+  : {}),
+
       }),
     });
 
@@ -1866,10 +1869,14 @@ console.log("[BOOT] after apply runIndex.size=", window.PT_DB && window.PT_DB.ru
   const status_id = ptCodeToStatusId(procStr, code, processId);
   if (!status_id) throw new Error("Cannot map status");
 
-  const resp = await PT_REST.apiUpdateRunStatus(runId, {
-    status_id,
-    note: noteText ? String(noteText).trim() : null,
-  });
+  const payload = { status_id };
+
+if (noteText != null && String(noteText).trim() !== "") {
+  payload.note = String(noteText).trim();
+}
+
+const resp = await PT_REST.apiUpdateRunStatus(runId, payload);
+
 
   if (resp?.updated) {
     ptApplyBackendRowToUI(resp.updated);
@@ -2311,11 +2318,18 @@ console.log("[BOOT] after apply runIndex.size=", window.PT_DB && window.PT_DB.ru
     }
 
     function setStoredResp(suKey, rackId, proc, who){
-      try {
-        if (!who) localStorage.removeItem(respStoreKey(suKey, rackId, proc));
-        else localStorage.setItem(respStoreKey(suKey, rackId, proc), String(who));
-      } catch {}
-    }
+  try {
+    // Cancel / закрыли модалку -> не трогаем сохранённое значение
+    if (who == null) return;
+
+    const v = String(who || "").trim();
+
+    // Явно пусто -> удалить
+    if (!v) localStorage.removeItem(respStoreKey(suKey, rackId, proc));
+    else localStorage.setItem(respStoreKey(suKey, rackId, proc), v);
+  } catch {}
+}
+
 
     function pickResponsible(){
       const modal = document.getElementById("ptRespModal");
@@ -3249,12 +3263,19 @@ function isQCDoneForProc(suKey, rack, proc){
 
         // Ask who is responsible for this change
         const who = await pickResponsible();
-        if (!who) return;
+if (typeof who === "string" && who.trim()) {
+  window.PT_STATE = window.PT_STATE || {};
+  window.PT_STATE.responsible = who.trim();
+}
+// ❗ НИКАКОГО return
+
 
         const newCode = String(statusSelect.value || "");
         if (newCode) setCode(selected.suKey, selected.rackId, targetProc, newCode);
         if (noteEl) setStoredNote(selected.suKey, selected.rackId, targetProc, String(noteEl.value || "").trim());
-        setStoredResp(selected.suKey, selected.rackId, targetProc, who);
+        if (who != null) {
+  setStoredResp(selected.suKey, selected.rackId, targetProc, who);
+}
 
         applyFilters();
         renderSelected();
